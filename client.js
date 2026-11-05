@@ -1,0 +1,413 @@
+(() => {
+  const sections = {
+    schedules: {
+      title: 'Lịch phát sóng',
+      description: 'Quản lý các khung giờ live và thông tin vận hành trên một màn hình.',
+      tableTitle: 'Danh sách khung giờ',
+      subtitle: 'Các dòng được lưu trong sheet lịch đang hoạt động.',
+      create: 'Tạo khung giờ',
+      total: 'Tổng khung giờ',
+      columns: ['Khung giờ', 'Sàn & thương hiệu', 'Host / PIC', 'Phòng', 'Trạng thái', 'Thao tác'],
+      fields: [
+        ['platform', 'Sàn', 'text', true], ['brand', 'Thương hiệu', 'text', true],
+        ['date', 'Ngày (dd/MM)', 'text', true, 'Ví dụ: 06/11'],
+        ['startTime', 'Giờ bắt đầu', 'time', true], ['endTime', 'Giờ kết thúc', 'time', true],
+        ['type', 'Loại lịch', 'text'], ['pic', 'PIC', 'text'], ['host', 'Host', 'text'],
+        ['douHost', 'Đa host', 'text'], ['hostEco', 'Host ECO', 'text'],
+        ['room', 'Phòng / Room', 'text'], ['status', 'Trạng thái', 'text'],
+        ['isKeep', 'ISKEEP', 'text']
+      ]
+    },
+    backgrounds: {
+      title: 'Background',
+      description: 'Cập nhật hình ảnh, ghi chú và loại background theo từng sàn và thương hiệu.',
+      tableTitle: 'Danh sách background',
+      subtitle: 'Nội dung được đồng bộ với sheet BG.',
+      create: 'Thêm background',
+      total: 'Tổng cấu hình',
+      columns: ['Sàn & thương hiệu', 'Loại', 'Background', 'Ghi chú', 'Thao tác'],
+      fields: [
+        ['platform', 'Sàn', 'text', true], ['brand', 'Thương hiệu', 'text', true],
+        ['type', 'Loại background', 'text'], ['link1', 'Đường dẫn background 1', 'text', false, 'URL hoặc ID Google Drive'],
+        ['note1', 'Ghi chú background 1', 'textarea'], ['link2', 'Đường dẫn background 2', 'text', false, 'URL hoặc ID Google Drive'],
+        ['note2', 'Ghi chú background 2', 'textarea'], ['sharedNote', 'Ghi chú chung', 'textarea']
+      ]
+    },
+    titles: {
+      title: 'Tiêu đề live',
+      description: 'Quản lý mẫu tiêu đề và các thành phần mã host, giờ, ngày được ghép tự động.',
+      tableTitle: 'Danh sách tiêu đề',
+      subtitle: 'Nội dung được đồng bộ với sheet TITLE.',
+      create: 'Thêm tiêu đề',
+      total: 'Tổng tiêu đề',
+      columns: ['Sàn & thương hiệu', 'Tiêu đề', 'Thành phần ghép', 'Thao tác'],
+      fields: [
+        ['platform', 'Sàn', 'text', true], ['brand', 'Thương hiệu', 'text', true],
+        ['title', 'Mẫu tiêu đề', 'textarea', true],
+        ['hostFlag', 'Ghép mã host', 'select', true],
+        ['timeFlag', 'Ghép giờ', 'select', true], ['dateFlag', 'Ghép ngày', 'select', true]
+      ]
+    },
+    hosts: {
+      title: 'Mã host',
+      description: 'Quản lý tên host và mã tham chiếu dùng để ghép vào lịch phát sóng.',
+      tableTitle: 'Danh sách mã host',
+      subtitle: 'Chọn danh sách ECO ID hoặc CPD ID để xem và cập nhật.',
+      create: 'Thêm mã host',
+      total: 'Tổng mã host',
+      columns: ['Tên host', 'Mã host', 'Thao tác'],
+      fields: [['name', 'Tên host', 'text', true], ['hostCode', 'Mã host', 'text', true]]
+    }
+  };
+
+  const elements = {
+    pageTitle: document.getElementById('pageTitle'),
+    pageDescription: document.getElementById('pageDescription'),
+    breadcrumb: document.getElementById('breadcrumbCurrent'),
+    tableTitle: document.getElementById('tableTitle'),
+    tableSubtitle: document.getElementById('tableSubtitle'),
+    createButtonLabel: document.getElementById('createButtonLabel'),
+    summaryLabel: document.getElementById('summaryLabel'),
+    summaryTotal: document.getElementById('summaryTotal'),
+    summaryActive: document.getElementById('summaryActive'),
+    tableHead: document.getElementById('tableHead'),
+    tableBody: document.getElementById('tableBody'),
+    emptyState: document.getElementById('emptyState'),
+    loadingState: document.getElementById('loadingState'),
+    resultCount: document.getElementById('resultCount'),
+    searchInput: document.getElementById('searchInput'),
+    hostGroupWrap: document.getElementById('hostGroupWrap'),
+    hostGroupSelect: document.getElementById('hostGroupSelect'),
+    modalBackdrop: document.getElementById('modalBackdrop'),
+    modalTitle: document.getElementById('modalTitle'),
+    form: document.getElementById('recordForm'),
+    formFields: document.getElementById('formFields'),
+    formError: document.getElementById('formError'),
+    saveButton: document.getElementById('saveButton'),
+    toastRegion: document.getElementById('toastRegion')
+  };
+
+  let currentSection = 'schedules';
+  let records = [];
+  let editingRecord = null;
+  let saving = false;
+
+  function hasAppsScriptBridge() {
+    return typeof google !== 'undefined' && google.script && google.script.run;
+  }
+
+  function callServer(method, args, onSuccess, onFailure) {
+    if (!hasAppsScriptBridge()) {
+      if (onFailure) onFailure(new Error('Hãy mở admin bằng đường dẫn Web App đã triển khai.'));
+      elements.loadingState.hidden = true;
+      elements.emptyState.hidden = false;
+      elements.emptyState.innerHTML = '<span>!</span><b>Cần mở bằng Apps Script Web App</b><small>Giao diện này cần kết nối với bảng tính CPD MASTER.</small>';
+      elements.resultCount.textContent = 'Chưa kết nối';
+      showToast('Hãy mở admin bằng đường dẫn Web App đã triển khai.', true);
+      return;
+    }
+    const runner = google.script.run
+      .withSuccessHandler(onSuccess)
+      .withFailureHandler(error => {
+        elements.loadingState.hidden = true;
+        elements.resultCount.textContent = 'Không thể tải dữ liệu';
+        if (onFailure) onFailure(error);
+        showToast(error && error.message ? error.message : 'Có lỗi khi kết nối Google Sheets.', true);
+      });
+    runner[method].apply(runner, args);
+  }
+
+  function showToast(message, isError) {
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (isError ? ' error' : '');
+    toast.textContent = message;
+    elements.toastRegion.appendChild(toast);
+    window.setTimeout(() => toast.remove(), 4200);
+  }
+
+  function selectSection(section) {
+    if (!sections[section]) return;
+    currentSection = section;
+    const config = sections[section];
+    document.querySelectorAll('.side-link').forEach(button => {
+      button.classList.toggle('active', button.dataset.section === section);
+    });
+    elements.pageTitle.textContent = config.title;
+    elements.pageDescription.textContent = config.description;
+    elements.breadcrumb.textContent = config.title;
+    elements.tableTitle.textContent = config.tableTitle;
+    elements.tableSubtitle.textContent = config.subtitle;
+    elements.createButtonLabel.textContent = config.create;
+    elements.summaryLabel.textContent = config.total;
+    elements.hostGroupWrap.hidden = section !== 'hosts';
+    document.getElementById('scheduleCount').textContent = section === 'schedules' ? (records.length || '—') : '—';
+    elements.searchInput.value = '';
+    document.getElementById('sidebar').classList.remove('open');
+    loadRecords();
+  }
+
+  function loadRecords() {
+    records = [];
+    elements.loadingState.hidden = false;
+    elements.emptyState.hidden = true;
+    elements.tableBody.replaceChildren();
+    elements.resultCount.textContent = 'Đang tải...';
+    elements.tableHead.innerHTML = '<tr>' + sections[currentSection].columns.map(label => '<th>' + label + '</th>').join('') + '</tr>';
+    callServer('adminListRecords', [currentSection, elements.hostGroupSelect.value], result => {
+      records = Array.isArray(result) ? result : [];
+      elements.loadingState.hidden = true;
+      elements.summaryTotal.textContent = records.length;
+      elements.summaryActive.textContent = currentSection === 'schedules'
+        ? records.filter(record => !/cancel|hủy|done|hoàn tất/i.test(record.values.status || '')).length
+        : records.length;
+      if (currentSection === 'schedules') {
+        document.getElementById('scheduleCount').textContent = records.length;
+      }
+      renderTable();
+    });
+  }
+
+  function renderTable() {
+    const query = elements.searchInput.value.trim().toLocaleLowerCase('vi');
+    const filteredRecords = records.filter(record =>
+      !query || JSON.stringify(record.values).toLocaleLowerCase('vi').includes(query)
+    );
+    elements.tableBody.replaceChildren();
+    filteredRecords.forEach(record => elements.tableBody.appendChild(createTableRow(record)));
+    if (filteredRecords.length === 0 && records.length > 0) {
+      elements.emptyState.innerHTML = '<span>⌕</span><b>Không tìm thấy kết quả</b><small>Thử tìm bằng từ khóa khác.</small>';
+    } else {
+      elements.emptyState.innerHTML = '<span>▤</span><b>Chưa có dữ liệu</b><small>Thêm bản ghi đầu tiên để bắt đầu quản lý.</small>';
+    }
+    elements.emptyState.hidden = filteredRecords.length > 0;
+    elements.resultCount.textContent = filteredRecords.length === records.length
+      ? records.length + ' bản ghi'
+      : filteredRecords.length + ' / ' + records.length + ' bản ghi';
+  }
+
+  function createTableRow(record) {
+    const row = document.createElement('tr');
+    const values = record.values;
+    if (currentSection === 'schedules') {
+      addCell(row, values.date + ' · ' + values.startTime + '–' + values.endTime, 'primary-cell');
+      addCell(row, (values.platform || '—') + ' · ' + (values.brand || '—'), '');
+      addRichCell(row, values.host || 'Chưa gán host', values.pic ? 'PIC: ' + values.pic : '');
+      addCell(row, values.room || '—');
+      addBadgeCell(row, values.status || 'Đang hoạt động');
+    } else if (currentSection === 'backgrounds') {
+      addCell(row, (values.platform || '—') + ' · ' + (values.brand || '—'), 'primary-cell');
+      addCell(row, values.type || 'Mặc định');
+      const links = document.createElement('td');
+      appendLink(links, values.link1, 'Background 1');
+      if (values.link2) appendLink(links, values.link2, 'Background 2');
+      row.appendChild(links);
+      addCell(row, values.sharedNote || values.note1 || values.note2 || '—', 'secondary-cell');
+    } else if (currentSection === 'titles') {
+      addCell(row, (values.platform || '—') + ' · ' + (values.brand || '—'), 'primary-cell');
+      addCell(row, values.title || '—', 'primary-cell');
+      addCell(row, [
+        Number(values.hostFlag) ? 'Mã host' : '',
+        Number(values.timeFlag) ? 'Giờ' : '',
+        Number(values.dateFlag) ? 'Ngày' : ''
+      ].filter(Boolean).join(' · ') || 'Không ghép tiền tố');
+    } else {
+      addCell(row, values.name || '—', 'primary-cell');
+      addCell(row, values.hostCode || '—', 'primary-cell');
+    }
+    addActionsCell(row, record);
+    return row;
+  }
+
+  function addCell(row, text, className) {
+    const cell = document.createElement('td');
+    if (className) cell.className = className;
+    cell.textContent = text || '—';
+    row.appendChild(cell);
+    return cell;
+  }
+
+  function addRichCell(row, primary, secondary) {
+    const cell = document.createElement('td');
+    cell.className = 'primary-cell';
+    cell.appendChild(document.createTextNode(primary));
+    if (secondary) {
+      const sub = document.createElement('span');
+      sub.className = 'cell-sub';
+      sub.textContent = secondary;
+      cell.appendChild(sub);
+    }
+    row.appendChild(cell);
+  }
+
+  function addBadgeCell(row, status) {
+    const cell = document.createElement('td');
+    const badge = document.createElement('span');
+    const normalized = status.toLocaleLowerCase('vi');
+    badge.className = 'badge' + (/cancel|hủy/i.test(normalized) ? ' gray' : (/done|hoàn tất/i.test(normalized) ? ' green' : (/live|đang/i.test(normalized) ? ' green' : '')));
+    badge.textContent = status;
+    cell.appendChild(badge);
+    row.appendChild(cell);
+  }
+
+  function appendLink(cell, value, label) {
+    if (!value) return;
+    const link = document.createElement('a');
+    link.className = 'external-link';
+    link.textContent = label;
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        link.href = parsed.href;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+      } else {
+        link.textContent = label + ': ' + value;
+      }
+    } catch (error) {
+      link.textContent = label + ': ' + value;
+    }
+    cell.appendChild(link);
+  }
+
+  function addActionsCell(row, record) {
+    const cell = document.createElement('td');
+    const actions = document.createElement('div');
+    actions.className = 'table-actions';
+    [['edit', 'Sửa'], ['delete', 'Xóa']].forEach(([action, label]) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'table-action' + (action === 'delete' ? ' delete' : '');
+      button.dataset.action = action;
+      button.dataset.row = record.rowNumber;
+      button.textContent = label;
+      actions.appendChild(button);
+    });
+    cell.appendChild(actions);
+    row.appendChild(cell);
+  }
+
+  function openForm(record) {
+    editingRecord = record || null;
+    elements.form.reset();
+    elements.formError.hidden = true;
+    elements.modalTitle.textContent = record ? 'Cập nhật bản ghi' : sections[currentSection].create;
+    elements.saveButton.textContent = record ? 'Lưu thay đổi' : 'Tạo bản ghi';
+    elements.formFields.replaceChildren();
+    sections[currentSection].fields.forEach(([key, label, type, required, hint]) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'form-field' + (type === 'textarea' ? ' full' : '');
+      const fieldLabel = document.createElement('label');
+      fieldLabel.htmlFor = 'field-' + key;
+      fieldLabel.textContent = label + (required ? ' *' : '');
+      wrapper.appendChild(fieldLabel);
+
+      let input;
+      if (type === 'textarea') {
+        input = document.createElement('textarea');
+      } else if (type === 'select') {
+        input = document.createElement('select');
+        [['0', 'Không'], ['1', 'Có']].forEach(([value, text]) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = text;
+          input.appendChild(option);
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = type;
+      }
+      input.id = 'field-' + key;
+      input.name = key;
+      input.autocomplete = 'off';
+      input.required = Boolean(required);
+      if (hint) input.placeholder = hint;
+      input.value = record && record.values[key] !== undefined
+        ? record.values[key]
+        : (type === 'select' ? '0' : '');
+      wrapper.appendChild(input);
+      if (hint && type !== 'text') {
+        const note = document.createElement('div');
+        note.className = 'field-hint';
+        note.textContent = hint;
+        wrapper.appendChild(note);
+      }
+      elements.formFields.appendChild(wrapper);
+    });
+    elements.modalBackdrop.hidden = false;
+    const firstInput = elements.formFields.querySelector('input, textarea, select');
+    if (firstInput) firstInput.focus();
+  }
+
+  function closeForm() {
+    if (saving) return;
+    elements.modalBackdrop.hidden = true;
+    editingRecord = null;
+  }
+
+  function saveForm(event) {
+    event.preventDefault();
+    if (saving) return;
+    const formData = new FormData(elements.form);
+    const values = {};
+    sections[currentSection].fields.forEach(([key]) => {
+      values[key] = String(formData.get(key) || '').trim();
+    });
+    const record = { values: values };
+    if (editingRecord) {
+      record.rowNumber = editingRecord.rowNumber;
+      record.version = editingRecord.version;
+    }
+    saving = true;
+    elements.saveButton.disabled = true;
+    elements.saveButton.textContent = 'Đang lưu...';
+    elements.formError.hidden = true;
+    callServer('adminSaveRecord', [currentSection, elements.hostGroupSelect.value, record], () => {
+      saving = false;
+      elements.saveButton.disabled = false;
+      closeForm();
+      showToast(editingRecord ? 'Đã cập nhật bản ghi.' : 'Đã tạo bản ghi.');
+      loadRecords();
+    }, error => {
+      saving = false;
+      elements.saveButton.disabled = false;
+      elements.saveButton.textContent = editingRecord ? 'Lưu thay đổi' : 'Tạo bản ghi';
+      elements.formError.textContent = error && error.message ? error.message : 'Không thể lưu dữ liệu.';
+      elements.formError.hidden = false;
+    });
+  }
+
+  function deleteRecord(rowNumber) {
+    const record = records.find(item => String(item.rowNumber) === String(rowNumber));
+    if (!record || !window.confirm('Bạn có chắc muốn xóa bản ghi này? Thao tác sẽ cập nhật trực tiếp Google Sheets.')) return;
+    callServer('adminDeleteRecord', [currentSection, elements.hostGroupSelect.value, record.rowNumber, record.version], () => {
+      showToast('Đã xóa bản ghi.');
+      loadRecords();
+    });
+  }
+
+  document.querySelectorAll('.side-link[data-section]').forEach(button => {
+    button.addEventListener('click', () => selectSection(button.dataset.section));
+  });
+  elements.searchInput.addEventListener('input', renderTable);
+  elements.hostGroupSelect.addEventListener('change', loadRecords);
+  document.getElementById('refreshButton').addEventListener('click', loadRecords);
+  document.getElementById('createButton').addEventListener('click', () => openForm(null));
+  document.getElementById('closeModal').addEventListener('click', closeForm);
+  document.getElementById('cancelButton').addEventListener('click', closeForm);
+  document.getElementById('mobileMenuButton').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('open');
+  });
+  elements.modalBackdrop.addEventListener('click', event => {
+    if (event.target === elements.modalBackdrop) closeForm();
+  });
+  elements.form.addEventListener('submit', saveForm);
+  elements.tableBody.addEventListener('click', event => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    const record = records.find(item => String(item.rowNumber) === button.dataset.row);
+    if (button.dataset.action === 'edit' && record) openForm(record);
+    if (button.dataset.action === 'delete') deleteRecord(button.dataset.row);
+  });
+
+  selectSection(currentSection);
+})();

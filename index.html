@@ -3,84 +3,109 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CPD MASTER ADMIN</title>
+  <base target="_top">
+  <title>CPD MASTER · Quản trị</title>
+  <? if (isAppsScript) { ?>
+  <style><?!= include('Styles'); ?></style>
+  <? } else { ?>
   <link rel="stylesheet" href="styles.css">
+  <? } ?>
 </head>
 <body>
-<div class="app">
-  <aside class="sidebar">
-    <div class="brand"><span class="brand-icon">C</span><span><b>CPD MASTER</b><small>ADMIN CONSOLE</small></span></div>
-    <p class="nav-caption">TỔNG QUAN</p>
-    <a class="nav active" href="#dashboard">▦ <span>Dashboard</span></a>
-    <p class="nav-caption">VẬN HÀNH</p>
-    <a class="nav" href="#schedules">▤ <span>Lịch phát sóng</span><i>12</i></a>
-    <a class="nav" href="#hosts">♙ <span>Host</span></a>
-    <a class="nav" href="#backgrounds">▧ <span>Background</span></a>
-    <a class="nav" href="#notes">▱ <span>Ghi chú</span></a>
-    <p class="nav-caption">HỆ THỐNG</p>
-    <a class="nav" href="#users">♧ <span>Người dùng & phân quyền</span></a>
-    <a class="nav" href="#brands">◇ <span>Brand & Platform</span></a>
-    <a class="nav" href="#reports">▥ <span>Báo cáo</span></a>
-    <a class="nav" href="#settings">⚙ <span>Cấu hình</span></a>
-    <div class="profile"><div class="avatar">AD</div><span><b>Admin CPD</b><small>Super Admin</small></span></div>
-  </aside>
-
-  <main class="main">
+  <div class="app-shell">
     <header class="topbar">
-      <div class="crumb">CPD MASTER <span>/</span> <b>Dashboard</b></div>
-      <div class="account"><button class="icon-button" aria-label="Thông báo">♧</button><div class="avatar">AD</div><span><b>Admin CPD</b><small>Super Admin</small></span></div>
+      <a class="brand" href="#" aria-label="CPD Master">
+        <span class="brand-mark">C</span>
+        <span class="brand-name">CPD MASTER <small>WORKSPACE</small></span>
+      </a>
+      <nav class="top-nav" aria-label="Điều hướng chính">
+        <a href="#dashboard">Tổng quan</a>
+        <a class="selected" href="#schedules">Quản lý dữ liệu</a>
+        <a href="#reports">Báo cáo</a>
+      </nav>
+      <div class="top-actions">
+        <span class="connection"><i></i> Đồng bộ Google Sheets</span>
+        <div class="user-chip"><span class="user-avatar">AD</span><span>Quản trị viên</span></div>
+      </div>
+      <button class="mobile-menu" id="mobileMenuButton" type="button" aria-label="Mở menu">☰</button>
     </header>
 
-    <section class="content">
-      <div class="page-title">
-        <div><div class="eyebrow">OVERVIEW · DEMO DATA</div><h1>Tổng quan vận hành</h1><p>Theo dõi tình hình lịch phát sóng và hoạt động hệ thống.</p></div>
-        <div class="actions"><button class="button">↻ Làm mới</button><button class="button primary">＋ Tạo lịch mới</button></div>
-      </div>
+    <div class="workspace">
+      <aside class="sidebar" id="sidebar">
+        <div class="workspace-label">KHÔNG GIAN LÀM VIỆC</div>
+        <button class="workspace-switch" type="button"><span class="workspace-icon">C</span><span><b>CPD MASTER</b><small>Quản trị nội dung</small></span><span class="chevron">⌄</span></button>
+        <div class="side-section">QUẢN LÝ</div>
+        <button class="side-link active" data-section="schedules"><span class="side-icon">◷</span><span>Lịch phát sóng</span><span class="side-count" id="scheduleCount">—</span></button>
+        <button class="side-link" data-section="backgrounds"><span class="side-icon">▧</span><span>Background</span></button>
+        <button class="side-link" data-section="titles"><span class="side-icon">T</span><span>Tiêu đề live</span></button>
+        <button class="side-link" data-section="hosts"><span class="side-icon">♙</span><span>Mã host</span></button>
+        <div class="side-divider"></div>
+        <div class="side-section">HỆ THỐNG</div>
+        <div class="side-static"><span class="side-icon">⚙</span><span>Cấu hình</span></div>
+        <div class="sidebar-bottom">
+          <div class="help-card"><span class="help-icon">?</span><div><b>Cần hỗ trợ?</b><small>Liên hệ quản trị hệ thống</small></div><span>›</span></div>
+          <div class="sidebar-user"><span class="user-avatar">AD</span><span><b>Admin CPD</b><small>Quản trị viên</small></span><button type="button" aria-label="Tùy chọn tài khoản">•••</button></div>
+        </div>
+      </aside>
 
-      <div class="stats">
-        <article class="stat"><div class="stat-label">Tổng lịch hôm nay <span class="symbol blue">▤</span></div><strong>48</strong><small class="up">↑ 8.4% <span>so với hôm qua</span></small></article>
-        <article class="stat"><div class="stat-label">Đang LIVE <span class="symbol green">●</span></div><strong>08</strong><small>6 brand đang hoạt động</small></article>
-        <article class="stat"><div class="stat-label">Sắp diễn ra <span class="symbol amber">◷</span></div><strong>12</strong><small>Trong 60 phút tới</small></article>
-        <article class="stat"><div class="stat-label">Đã hủy <span class="symbol red">×</span></div><strong>02</strong><small>Trong ngày hôm nay</small></article>
-      </div>
-
-      <div class="dashboard-grid">
-        <article class="panel">
-          <div class="panel-head"><div><h2>Lịch phát sóng theo ngày</h2><p>Thống kê 7 ngày gần nhất</p></div><select><option>7 ngày gần nhất</option><option>30 ngày gần nhất</option></select></div>
-          <div class="chart">
-            <div class="bar-group"><div class="bars"><i style="height:48%"></i><b style="height:68%"></b></div><small>T2</small></div>
-            <div class="bar-group"><div class="bars"><i style="height:65%"></i><b style="height:82%"></b></div><small>T3</small></div>
-            <div class="bar-group"><div class="bars"><i style="height:56%"></i><b style="height:73%"></b></div><small>T4</small></div>
-            <div class="bar-group"><div class="bars"><i style="height:76%"></i><b style="height:90%"></b></div><small>T5</small></div>
-            <div class="bar-group"><div class="bars"><i style="height:52%"></i><b style="height:65%"></b></div><small>T6</small></div>
-            <div class="bar-group"><div class="bars"><i style="height:38%"></i><b style="height:58%"></b></div><small>T7</small></div>
-            <div class="bar-group"><div class="bars"><i style="height:26%"></i><b style="height:42%"></b></div><small>CN</small></div>
+      <main class="main-content">
+        <div class="breadcrumb"><span>CPD MASTER</span><span class="slash">/</span><b id="breadcrumbCurrent">Lịch phát sóng</b></div>
+        <section class="page-heading">
+          <div>
+            <div class="heading-kicker"><span class="live-pulse"></span> TRUNG TÂM VẬN HÀNH</div>
+            <h1 id="pageTitle">Lịch phát sóng</h1>
+            <p id="pageDescription">Quản lý các khung giờ live và thông tin vận hành trên một màn hình.</p>
           </div>
-          <div class="legend"><span><i class="dot pale"></i>Đã lên lịch</span><span><i class="dot dark"></i>Hoàn tất</span></div>
-        </article>
+          <div class="heading-actions">
+            <button type="button" class="button button-outline" id="refreshButton"><span>↻</span> Làm mới</button>
+            <button type="button" class="button button-primary" id="createButton"><span>＋</span> <span id="createButtonLabel">Tạo khung giờ</span></button>
+          </div>
+        </section>
 
-        <article class="panel">
-          <div class="panel-head"><div><h2>Đang LIVE & sắp diễn ra</h2><p>Cập nhật trạng thái trong ngày</p></div><a href="#schedules">Xem tất cả →</a></div>
-          <div class="live-item"><span class="brand-mini">S</span><div><b>Shop thời trang · Room 01</b><small>09:00–11:00 · Minh Anh</small></div><label class="badge success">● LIVE</label></div>
-          <div class="live-item"><span class="brand-mini">B</span><div><b>Beauty House · Room 02</b><small>09:30–11:30 · Ngọc Trâm</small></div><label class="badge success">● LIVE</label></div>
-          <div class="live-item"><span class="brand-mini">E</span><div><b>Eco Home · Room 03</b><small>10:30–12:00 · Hoàng Long</small></div><label class="badge warning">SẮP TỚI</label></div>
-          <div class="live-item"><span class="brand-mini">M</span><div><b>Mom & Baby · Room 01</b><small>11:00–13:00 · Thu Hà</small></div><label class="badge info">UPCOMING</label></div>
-        </article>
-      </div>
+        <div class="summary-row">
+          <div class="summary-card"><span class="summary-icon violet">▤</span><span><small id="summaryLabel">Tổng khung giờ</small><b id="summaryTotal">—</b></span></div>
+          <div class="summary-card"><span class="summary-icon green">●</span><span><small>Đang hoạt động</small><b id="summaryActive">—</b></span></div>
+          <div class="summary-card summary-hint"><span class="hint-icon">↗</span><span><b>Dữ liệu tập trung</b><small>Thay đổi được đồng bộ trực tiếp</small></span></div>
+        </div>
 
-      <article class="panel table-panel">
-        <div class="panel-head"><div><h2>Hoạt động gần đây</h2><p>Các thay đổi mới nhất trên hệ thống</p></div><a href="#settings">Nhật ký hệ thống →</a></div>
-        <div class="table-wrap"><table><thead><tr><th>Người thực hiện</th><th>Hoạt động</th><th>Đối tượng</th><th>Thời gian</th><th>Kết quả</th></tr></thead>
-        <tbody>
-          <tr><td>Nguyễn Minh</td><td>Tạo lịch phát sóng mới</td><td>Beauty House · 10:00</td><td>09:42 hôm nay</td><td><label class="badge success">Thành công</label></td></tr>
-          <tr><td>Admin CPD</td><td>Cập nhật thông tin host</td><td>Host: Minh Anh</td><td>09:15 hôm nay</td><td><label class="badge success">Thành công</label></td></tr>
-          <tr><td>Trần Quốc</td><td>Điều chỉnh trạng thái lịch</td><td>Eco Home · 08:00</td><td>08:50 hôm nay</td><td><label class="badge success">Thành công</label></td></tr>
-        </tbody></table></div>
-      </article>
+        <section class="data-card">
+          <div class="data-card-heading">
+            <div><h2 id="tableTitle">Danh sách khung giờ</h2><p id="tableSubtitle">Các dòng được lưu trong sheet lịch đang hoạt động.</p></div>
+            <div class="table-tools">
+              <label class="search-box"><span>⌕</span><input id="searchInput" type="search" placeholder="Tìm kiếm..." autocomplete="off"></label>
+              <label class="filter-button" id="hostGroupWrap" hidden>Sheet host: <select id="hostGroupSelect" aria-label="Chọn danh sách mã host"><option value="ECO ID">ECO ID</option><option value="CPD ID">CPD ID</option></select></label>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead id="tableHead"></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+            <div class="empty-state" id="emptyState" hidden><span>▤</span><b>Chưa có dữ liệu</b><small>Thêm bản ghi đầu tiên để bắt đầu quản lý.</small></div>
+            <div class="loading-state" id="loadingState"><span class="spinner"></span>Đang tải dữ liệu...</div>
+          </div>
+          <div class="table-footer"><span id="resultCount">Đang tải...</span><span>Nguồn dữ liệu: Google Sheets</span></div>
+        </section>
+        <div class="page-footnote"><span class="sync-dot"></span> Dữ liệu được đọc và ghi trực tiếp từ bảng tính CPD MASTER.</div>
+      </main>
+    </div>
+  </div>
 
-      <div class="section-note">Prototype giao diện quản trị CPD MASTER · Dữ liệu hiện tại là dữ liệu minh họa.</div>
+  <div class="modal-backdrop" id="modalBackdrop" hidden>
+    <section class="record-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-heading"><div><span class="modal-kicker">CPD MASTER · QUẢN LÝ DỮ LIỆU</span><h2 id="modalTitle">Tạo bản ghi</h2></div><button type="button" class="close-button" id="closeModal" aria-label="Đóng">×</button></div>
+      <form id="recordForm">
+        <div class="form-grid" id="formFields"></div>
+        <div class="form-error" id="formError" role="alert" hidden></div>
+        <div class="modal-footer"><button type="button" class="button button-outline" id="cancelButton">Hủy</button><button type="submit" class="button button-primary" id="saveButton">Lưu thay đổi</button></div>
+      </form>
     </section>
-  </main>
-</div>
+  </div>
+  <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  <? if (isAppsScript) { ?>
+  <?!= include('Client'); ?>
+  <? } else { ?>
+  <script src="client.js" defer></script>
+  <? } ?>
 </body>
 </html>
