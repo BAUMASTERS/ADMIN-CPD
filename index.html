@@ -1,17 +1,86 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <meta http-equiv="Cache-control" content="no-cache, no-store, must-revalidate">
-  <meta http-equiv="Pragma" content="no-cache">
-  <meta http-equiv="Expires" content="0">
-  <title>CPD BAU MASTER</title>
-  <script>
-    const URL = "https://script.google.com/macros/s/AKfycbzvFItYLKG9uCUgkVMj5zzH_jL4Qtaht7alBdK7IlxoGKPHURGeVveHFQ7_93QSQflD/exec";
-    location.replace(URL);
-  </script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CPD MASTER ADMIN</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <p>Redirecting to place you should go...</p>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-icon">C</span><span><b>CPD MASTER</b><small>ADMIN CONSOLE</small></span></div>
+    <p class="nav-caption">TỔNG QUAN</p>
+    <a class="nav active" href="#dashboard">▦ <span>Dashboard</span></a>
+    <p class="nav-caption">VẬN HÀNH</p>
+    <a class="nav" href="#schedules">▤ <span>Lịch phát sóng</span><i>12</i></a>
+    <a class="nav" href="#hosts">♙ <span>Host</span></a>
+    <a class="nav" href="#backgrounds">▧ <span>Background</span></a>
+    <a class="nav" href="#notes">▱ <span>Ghi chú</span></a>
+    <p class="nav-caption">HỆ THỐNG</p>
+    <a class="nav" href="#users">♧ <span>Người dùng & phân quyền</span></a>
+    <a class="nav" href="#brands">◇ <span>Brand & Platform</span></a>
+    <a class="nav" href="#reports">▥ <span>Báo cáo</span></a>
+    <a class="nav" href="#settings">⚙ <span>Cấu hình</span></a>
+    <div class="profile"><div class="avatar">AD</div><span><b>Admin CPD</b><small>Super Admin</small></span></div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="crumb">CPD MASTER <span>/</span> <b>Dashboard</b></div>
+      <div class="account"><button class="icon-button" aria-label="Thông báo">♧</button><div class="avatar">AD</div><span><b>Admin CPD</b><small>Super Admin</small></span></div>
+    </header>
+
+    <section class="content">
+      <div class="page-title">
+        <div><div class="eyebrow">OVERVIEW · DEMO DATA</div><h1>Tổng quan vận hành</h1><p>Theo dõi tình hình lịch phát sóng và hoạt động hệ thống.</p></div>
+        <div class="actions"><button class="button">↻ Làm mới</button><button class="button primary">＋ Tạo lịch mới</button></div>
+      </div>
+
+      <div class="stats">
+        <article class="stat"><div class="stat-label">Tổng lịch hôm nay <span class="symbol blue">▤</span></div><strong>48</strong><small class="up">↑ 8.4% <span>so với hôm qua</span></small></article>
+        <article class="stat"><div class="stat-label">Đang LIVE <span class="symbol green">●</span></div><strong>08</strong><small>6 brand đang hoạt động</small></article>
+        <article class="stat"><div class="stat-label">Sắp diễn ra <span class="symbol amber">◷</span></div><strong>12</strong><small>Trong 60 phút tới</small></article>
+        <article class="stat"><div class="stat-label">Đã hủy <span class="symbol red">×</span></div><strong>02</strong><small>Trong ngày hôm nay</small></article>
+      </div>
+
+      <div class="dashboard-grid">
+        <article class="panel">
+          <div class="panel-head"><div><h2>Lịch phát sóng theo ngày</h2><p>Thống kê 7 ngày gần nhất</p></div><select><option>7 ngày gần nhất</option><option>30 ngày gần nhất</option></select></div>
+          <div class="chart">
+            <div class="bar-group"><div class="bars"><i style="height:48%"></i><b style="height:68%"></b></div><small>T2</small></div>
+            <div class="bar-group"><div class="bars"><i style="height:65%"></i><b style="height:82%"></b></div><small>T3</small></div>
+            <div class="bar-group"><div class="bars"><i style="height:56%"></i><b style="height:73%"></b></div><small>T4</small></div>
+            <div class="bar-group"><div class="bars"><i style="height:76%"></i><b style="height:90%"></b></div><small>T5</small></div>
+            <div class="bar-group"><div class="bars"><i style="height:52%"></i><b style="height:65%"></b></div><small>T6</small></div>
+            <div class="bar-group"><div class="bars"><i style="height:38%"></i><b style="height:58%"></b></div><small>T7</small></div>
+            <div class="bar-group"><div class="bars"><i style="height:26%"></i><b style="height:42%"></b></div><small>CN</small></div>
+          </div>
+          <div class="legend"><span><i class="dot pale"></i>Đã lên lịch</span><span><i class="dot dark"></i>Hoàn tất</span></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head"><div><h2>Đang LIVE & sắp diễn ra</h2><p>Cập nhật trạng thái trong ngày</p></div><a href="#schedules">Xem tất cả →</a></div>
+          <div class="live-item"><span class="brand-mini">S</span><div><b>Shop thời trang · Room 01</b><small>09:00–11:00 · Minh Anh</small></div><label class="badge success">● LIVE</label></div>
+          <div class="live-item"><span class="brand-mini">B</span><div><b>Beauty House · Room 02</b><small>09:30–11:30 · Ngọc Trâm</small></div><label class="badge success">● LIVE</label></div>
+          <div class="live-item"><span class="brand-mini">E</span><div><b>Eco Home · Room 03</b><small>10:30–12:00 · Hoàng Long</small></div><label class="badge warning">SẮP TỚI</label></div>
+          <div class="live-item"><span class="brand-mini">M</span><div><b>Mom & Baby · Room 01</b><small>11:00–13:00 · Thu Hà</small></div><label class="badge info">UPCOMING</label></div>
+        </article>
+      </div>
+
+      <article class="panel table-panel">
+        <div class="panel-head"><div><h2>Hoạt động gần đây</h2><p>Các thay đổi mới nhất trên hệ thống</p></div><a href="#settings">Nhật ký hệ thống →</a></div>
+        <div class="table-wrap"><table><thead><tr><th>Người thực hiện</th><th>Hoạt động</th><th>Đối tượng</th><th>Thời gian</th><th>Kết quả</th></tr></thead>
+        <tbody>
+          <tr><td>Nguyễn Minh</td><td>Tạo lịch phát sóng mới</td><td>Beauty House · 10:00</td><td>09:42 hôm nay</td><td><label class="badge success">Thành công</label></td></tr>
+          <tr><td>Admin CPD</td><td>Cập nhật thông tin host</td><td>Host: Minh Anh</td><td>09:15 hôm nay</td><td><label class="badge success">Thành công</label></td></tr>
+          <tr><td>Trần Quốc</td><td>Điều chỉnh trạng thái lịch</td><td>Eco Home · 08:00</td><td>08:50 hôm nay</td><td><label class="badge success">Thành công</label></td></tr>
+        </tbody></table></div>
+      </article>
+
+      <div class="section-note">Prototype giao diện quản trị CPD MASTER · Dữ liệu hiện tại là dữ liệu minh họa.</div>
+    </section>
+  </main>
+</div>
 </body>
 </html>
