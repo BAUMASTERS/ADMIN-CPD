@@ -4,6 +4,8 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 
 ## Giao diện quản trị
 
+- Bản desktop dùng không gian tối, điều hướng dạng media library và điểm nhấn “Dark Phoenix” (than, đỏ lửa, hổ phách).
+- Bản mobile ưu tiên thao tác nhanh một tay, lối tắt module và thanh điều hướng dưới.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
 - Lịch live có chế độ tháng/tuần/ngày và danh sách lịch xem có thể thêm/bỏ.
 - Background hiển thị theo hồ sơ brand; form chọn ảnh chỉ xem trước tại trình duyệt, chưa upload lên Drive.

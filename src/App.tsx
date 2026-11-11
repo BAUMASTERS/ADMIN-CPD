@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Cloud, Command,
+  Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Cloud, Command, Flame,
   Database, FileText, LockKeyhole, Menu, Monitor, Moon,
   MoreHorizontal, Package, Pencil, Plus, Search, Settings, Sun, Trash2, Upload,
   Users, X, Check, Bell, Library, Clock3, Image,
@@ -93,7 +93,10 @@ export default function App() {
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [query, setQuery] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("cpd-theme") as ThemeMode) || "dark");
-  const [accent, setAccent] = useState<Accent>(() => (localStorage.getItem("cpd-accent") as Accent) || "mauve");
+  const [accent, setAccent] = useState<Accent>(() => {
+    const savedAccent = localStorage.getItem("cpd-accent");
+    return savedAccent === "ember" || savedAccent === "blue" || savedAccent === "green" ? savedAccent : "phoenix";
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -102,7 +105,9 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [hostGroup, setHostGroup] = useState("ECO ID");
-  const [calendarView, setCalendarView] = useState<CalendarView>("month");
+  const [calendarView, setCalendarView] = useState<CalendarView>(() =>
+    window.matchMedia("(max-width: 760px)").matches ? "day" : "month"
+  );
   const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [sources, setSources] = useState(initialSources);
   const [visibleSources, setVisibleSources] = useState<string[]>(initialSources.map(source => source.id));
@@ -333,8 +338,8 @@ export default function App() {
       <header className="topbar">
         <button className="icon-button mobile-only" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Mở menu"><Menu/></button>
         <a className="brand" href="#" onClick={event => event.preventDefault()}>
-          <span className="brand-symbol"><Cloud size={25}/><Activity size={16}/></span>
-          <span>CPD MASTER<small>OPERATIONS WORKSPACE</small></span>
+          <span className="brand-symbol"><Flame size={25}/><Activity size={14}/></span>
+          <span>CPD MASTER<small>DARK PHOENIX · OPERATIONS</small></span>
         </a>
         <div className="global-search"><Search size={18}/><input aria-label="Tìm kiếm dữ liệu" placeholder="Tìm kiếm dữ liệu..." value={query} onChange={event => setQuery(event.target.value)}/><kbd>⌘ K</kbd></div>
         <div className="top-actions">
@@ -387,6 +392,27 @@ export default function App() {
           </section>
 
           {isDataModule && <>
+            {module === "schedules" && <section className="phoenix-hero">
+              <div className="phoenix-hero-copy">
+                <span className="phoenix-kicker"><Flame size={14}/> PHOENIX OPERATIONS · {division}</span>
+                <h2>Mọi phiên live,<br/><em>đúng nhịp vận hành.</em></h2>
+                <p>Lịch phát sóng trong ngày được gom tại một nơi. Chọn ngày để xem lịch theo ca.</p>
+                <div className="phoenix-hero-actions">
+                  <button className="hero-primary" onClick={() => { setSelectedDate(new Date()); setCalendarView("day"); }}>Xem lịch hôm nay <ChevronRight size={16}/></button>
+                  <button className="hero-secondary" onClick={() => setCalendarView("week")}>Xem cả tuần</button>
+                </div>
+              </div>
+              <div className="phoenix-orbit" aria-hidden="true"><div className="phoenix-orbit-ring"/><div className="phoenix-orbit-core"><Flame size={48}/></div><i/><i/><i/></div>
+              <div className="phoenix-hero-stats"><span><b>{scheduleRecords.length}</b><small>lịch trong mẫu</small></span><span><b>{sources.length}</b><small>nguồn đang theo dõi</small></span><span><b>{division}</b><small>workspace</small></span></div>
+            </section>}
+            {module === "schedules" && <nav className="quick-services" aria-label="Thao tác nhanh">
+              <span className="quick-services-label">Truy cập nhanh</span>
+              {moduleKeys.filter(key => key !== "schedules").map(key => {
+                const Icon = icons[key];
+                return <button key={key} onClick={() => setScreen(key)}><span><Icon size={17}/></span><b>{moduleConfig[key].title}</b><ChevronRight size={14}/></button>;
+              })}
+              <button onClick={() => setScreen("library")}><span><Library size={17}/></span><b>Thư viện</b><ChevronRight size={14}/></button>
+            </nav>}
             <section className="metric-row">
               <div className="metric-card"><span className="metric-icon"><Database size={18}/></span><span><small>{`Tổng ${config.singular}`}</small><b>{records.length}</b></span></div>
               <div className="metric-card"><span className="metric-icon metric-icon-green"><Check size={18}/></span><span><small>Đang hoạt động</small><b>{activeCount}</b></span></div>
@@ -402,7 +428,7 @@ export default function App() {
                       <button className="outline-button" aria-label="Tiến" onClick={() => shiftCalendar(1)}><ChevronRight size={17}/></button>
                     </div>
                     <h2>{formatMonth(selectedDate)}</h2>
-                    <button className="outline-button today-button" onClick={() => setSelectedDate(new Date())}>Hôm nay</button>
+                    <button className="outline-button today-button" onClick={() => { setSelectedDate(new Date()); if (window.innerWidth < 760) setCalendarView("day"); }}>Hôm nay</button>
                   </div>
                   <div className="calendar-view-switch">{(["month", "week", "day"] as CalendarView[]).map(view => <button key={view} className={calendarView === view ? "selected" : ""} onClick={() => setCalendarView(view)}>{view === "month" ? "Tháng" : view === "week" ? "Tuần" : "Ngày"}</button>)}</div>
                 </div>
@@ -535,7 +561,9 @@ export default function App() {
         <div className="popover-title"><div><b>Tùy chỉnh giao diện</b><small>Cá nhân hóa không gian làm việc</small></div><button className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button></div>
         <label className="setting-label">Chế độ hiển thị</label><div className="theme-options">
           {([{ value: "light", label: "Sáng", Icon: Sun }, { value: "dark", label: "Tối", Icon: Moon }, { value: "system", label: "Theo thiết bị", Icon: Monitor }] as const).map(item => <button className={theme === item.value ? "selected" : ""} key={item.value} onClick={() => setTheme(item.value)}><item.Icon size={17}/>{item.label}</button>)}
-        </div><label className="setting-label">Màu nhấn</label><div className="accent-options">{(["mauve", "purple", "blue", "green"] as Accent[]).map(color => <button key={color} className={`accent-swatch ${color} ${accent === color ? "selected" : ""}`} onClick={() => setAccent(color)} aria-label={color}>{accent === color && <Check size={15}/>}</button>)}</div>
+        </div>
+        <label className="setting-label">Màu nhấn</label>
+        <div className="accent-options">{(["phoenix", "ember", "blue", "green"] as Accent[]).map(color => <button key={color} className={`accent-swatch ${color} ${accent === color ? "selected" : ""}`} onClick={() => setAccent(color)} aria-label={color} title={color === "phoenix" ? "Phoenix đỏ" : color === "ember" ? "Hổ phách" : color === "blue" ? "Xanh" : "Lục"}>{accent === color && <Check size={15}/>}</button>)}</div>
         <p className="settings-hint">Lựa chọn được lưu trên trình duyệt này. Vai trò và dữ liệu hiện chỉ là mô phỏng giao diện.</p>
       </section></div>}
 
