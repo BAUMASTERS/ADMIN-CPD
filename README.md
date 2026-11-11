@@ -1,6 +1,19 @@
 # CPD MASTER Admin
 
-Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backend. Frontend hiện vẫn dùng mock data, chưa kết nối backend.
+Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backend. Frontend hiện dùng mock data để hoàn thiện và thử luồng giao diện, chưa kết nối backend. Thao tác thêm/sửa/xóa trong bản demo chỉ có hiệu lực trong phiên trình duyệt hiện tại.
+
+## Giao diện quản trị
+
+- Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
+- Lịch live có chế độ tháng/tuần/ngày và danh sách lịch xem có thể thêm/bỏ.
+- Background hiển thị theo hồ sơ brand; form chọn ảnh chỉ xem trước tại trình duyệt, chưa upload lên Drive.
+- Title chỉ sửa title và các tùy chọn ghép trên record có sẵn; không tạo/xóa, không sửa sàn/thương hiệu.
+- Mã host có lựa chọn ECO/BAS và CRUD dữ liệu mẫu.
+- Thư viện có xem theo division; quyền thêm/sửa/xóa chỉ mô phỏng role Superadmin trong giao diện.
+- Trang tài khoản admin có tạo/khóa tài khoản mẫu và chỉ hiển thị thao tác cho role Superadmin mô phỏng.
+- Livestream Checking và Warning Checking được hiển thị là tính năng sắp phát triển.
+
+Mọi nhãn “demo” hoặc “mô phỏng” đều có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
 
 ## Apps Script
 
@@ -30,8 +43,10 @@ Backend dùng PBKDF2-HMAC-SHA256 với salt riêng, giới hạn thử mật kh�
 - API dữ liệu yêu cầu session token hợp lệ; API quản lý tài khoản chỉ dành cho superadmin.
 - Chọn division `CPD` hoặc `P&G` trước mọi thao tác; không truyền division thì backend từ chối.
 
-## Phần chưa hoàn tất
+## Chưa có trong bản giao diện demo
 
-- React `src/services/records.ts` vẫn dùng mock data, chưa gọi Apps Script. Cần chọn và triển khai transport phù hợp để gọi backend Apps Script từ frontend.
-- Chưa có xem lịch dạng tháng/tuần/ngày, upload ảnh trực tiếp lên Drive, tạo brand kèm record liên quan ở các sheet, thư viện sheet, Livestream Checking hoặc Warning Checking.
-- Cần triển khai và kiểm thử bằng spreadsheet thực tế trước production; kiểm tra quyền truy cập, dữ liệu từng division và quy tắc lịch của từng brand.
+- Transport, đăng nhập và phân quyền thật từ React tới Apps Script; các vai trò/quyền đang mô phỏng.
+- Upload và quản lý hình trên Google Drive; hiện chỉ chọn tệp và xem trước cục bộ.
+- Lưu thay đổi vào Google Sheets, khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
+- Nghiệp vụ Livestream Checking và Warning Checking.
+- Cần triển khai và kiểm thử với spreadsheet thực tế trước production.

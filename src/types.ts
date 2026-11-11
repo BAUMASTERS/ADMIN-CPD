@@ -39,13 +39,6 @@ export const moduleConfig: Record<ModuleKey, ModuleConfig> = {
       { key: "status", label: "Trạng thái" }
     ],
     fields: [
-      { key: "platform", label: "Sàn", required: true, group: "Thông tin chung" },
-      { key: "brand", label: "Thương hiệu", required: true, group: "Thông tin chung" },
-      { key: "date", label: "Ngày (dd/MM)", required: true, hint: "Ví dụ: 06/11", group: "Thông tin chung" },
-      { key: "startTime", label: "Giờ bắt đầu", type: "time", required: true, group: "Thời gian" },
-      { key: "endTime", label: "Giờ kết thúc", type: "time", required: true, group: "Thời gian" },
-      { key: "type", label: "Loại lịch", group: "Thông tin chung" },
-      { key: "pic", label: "PIC", group: "Nhân sự" },
       { key: "host", label: "Host", group: "Nhân sự" },
       { key: "douHost", label: "Đa host", group: "Nhân sự" },
       { key: "hostEco", label: "Host ECO", group: "Nhân sự" },
@@ -64,8 +57,6 @@ export const moduleConfig: Record<ModuleKey, ModuleConfig> = {
       { key: "link2", label: "Background 2" }, { key: "sharedNote", label: "Ghi chú" }
     ],
     fields: [
-      { key: "platform", label: "Sàn", required: true, group: "Thông tin chung" },
-      { key: "brand", label: "Thương hiệu", required: true, group: "Thông tin chung" },
       { key: "type", label: "Loại background", group: "Thông tin chung" },
       { key: "link1", label: "Đường dẫn background 1", type: "url", hint: "URL hoặc ID Google Drive", group: "Tài nguyên" },
       { key: "note1", label: "Ghi chú background 1", type: "textarea", group: "Tài nguyên" },
@@ -83,8 +74,6 @@ export const moduleConfig: Record<ModuleKey, ModuleConfig> = {
       { key: "title", label: "Mẫu tiêu đề" }, { key: "flags", label: "Thành phần ghép" }
     ],
     fields: [
-      { key: "platform", label: "Sàn", required: true, group: "Thông tin chung" },
-      { key: "brand", label: "Thương hiệu", required: true, group: "Thông tin chung" },
       { key: "title", label: "Mẫu tiêu đề", type: "textarea", required: true, group: "Nội dung" },
       { key: "hostFlag", label: "Ghép mã host", type: "select", options: ["0", "1"], required: true, group: "Thành phần ghép" },
       { key: "timeFlag", label: "Ghép giờ", type: "select", options: ["0", "1"], required: true, group: "Thành phần ghép" },
