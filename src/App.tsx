@@ -47,6 +47,8 @@ export default function App() {
   const [hostGroup, setHostGroup] = useState("ECO ID");
 
   const config = moduleConfig[module];
+  const canCreate = module === "hosts";
+  const canDelete = module === "hosts";
   const effectiveTheme = theme === "system"
     ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
     : theme;
@@ -122,7 +124,7 @@ export default function App() {
         <div className="global-search"><Search size={18}/><input placeholder="Tìm kiếm dữ liệu..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>⌘ K</kbd></div>
         <div className="top-actions">
           <button className="icon-button" aria-label="Thông báo"><Bell size={19}/></button>
-          <button className="create-button" onClick={openCreate}><Plus size={17}/> <span>Tạo {module === "schedules" ? "khung giờ" : config.singular}</span></button>
+          {canCreate && <button className="create-button" onClick={openCreate}><Plus size={17}/> <span>Tạo {config.singular}</span></button>}
           <button className="icon-button settings-trigger" onClick={() => setSettingsOpen(!settingsOpen)} aria-label="Cài đặt giao diện"><Settings size={19}/></button>
         </div>
       </header>
@@ -153,7 +155,7 @@ export default function App() {
             <div><div className="eyebrow"><span/> TRUNG TÂM VẬN HÀNH</div><h1>{config.title}</h1><p>{config.description}</p></div>
             <div className="heading-actions">
               <button className="outline-button" onClick={refresh}><Activity size={16}/> Làm mới</button>
-              <button className="create-button desktop-create" onClick={openCreate}><Plus size={17}/> Tạo mới</button>
+              {canCreate && <button className="create-button desktop-create" onClick={openCreate}><Plus size={17}/> Tạo mới</button>}
             </div>
           </section>
 
@@ -183,11 +185,11 @@ export default function App() {
                       {col.key === "status" ? <span className={statusClass(getDisplayValue(module, record, col.key))}>{getDisplayValue(module, record, col.key)}</span> :
                         <span className={["brand","title","name","date","time"].includes(col.key) ? "cell-strong" : ""}>{getDisplayValue(module, record, col.key)}</span>}
                     </td>)}
-                    <td><div className="row-actions"><button onClick={() => openEdit(record)} aria-label="Sửa"><Pencil size={16}/></button><button onClick={() => handleDelete(record)} aria-label="Xóa"><Trash2 size={16}/></button></div></td>
+                    <td><div className="row-actions"><button onClick={() => openEdit(record)} aria-label="Sửa"><Pencil size={16}/></button>{canDelete && <button onClick={() => handleDelete(record)} aria-label="Xóa"><Trash2 size={16}/></button>}</div></td>
                   </tr>)}
                 </tbody>
               </table>
-              {filtered.length === 0 && <div className="empty-state"><Database size={25}/><b>Không có dữ liệu</b><span>Thử thay đổi từ khóa tìm kiếm hoặc tạo bản ghi mới.</span></div>}
+              {filtered.length === 0 && <div className="empty-state"><Database size={25}/><b>Không có dữ liệu</b><span>{canCreate ? "Thử thay đổi từ khóa tìm kiếm hoặc tạo bản ghi mới." : "Thử thay đổi từ khóa tìm kiếm."}</span></div>}
             </div>
 
             <div className="mobile-record-list">
@@ -198,9 +200,9 @@ export default function App() {
                 </div>
                 {module === "schedules" ? <><strong className="record-time">{getDisplayValue(module, record, "time")}</strong><p>Host: {record.values.host || "Chưa gán"} · {record.values.room || "Chưa có phòng"}</p><p className="record-sub">{record.values.platform} · PIC: {record.values.pic || "—"}</p></> :
                   <div className="record-details">{config.columns.slice(0, 3).map(col => <div key={col.key}><small>{col.label}</small><span>{getDisplayValue(module, record, col.key)}</span></div>)}</div>}
-                <div className="record-card-actions"><button onClick={() => openEdit(record)}><Pencil size={15}/> Chỉnh sửa</button><button className="danger-action" onClick={() => handleDelete(record)}><Trash2 size={15}/> Xóa</button></div>
+                <div className="record-card-actions"><button onClick={() => openEdit(record)}><Pencil size={15}/> Chỉnh sửa</button>{canDelete && <button className="danger-action" onClick={() => handleDelete(record)}><Trash2 size={15}/> Xóa</button>}</div>
               </article>)}
-              {filtered.length === 0 && <div className="empty-state"><Database size={25}/><b>Không có dữ liệu</b><span>Thử từ khóa khác hoặc tạo bản ghi mới.</span></div>}
+              {filtered.length === 0 && <div className="empty-state"><Database size={25}/><b>Không có dữ liệu</b><span>{canCreate ? "Thử từ khóa khác hoặc tạo bản ghi mới." : "Thử từ khóa khác."}</span></div>}
             </div>
             <div className="panel-footer"><span>Hiển thị {filtered.length} / {records.length} bản ghi</span><div className="pagination"><button disabled>‹</button><button className="current-page">1</button><button disabled>›</button></div></div>
           </section>
@@ -230,8 +232,8 @@ export default function App() {
                 {config.fields.filter(field => (field.group || "Thông tin") === group).map(field => <label className={`form-field ${field.type === "textarea" ? "field-full" : ""}`} key={field.key}>
                   <span>{field.label}{field.required && <i> *</i>}</span>
                   {field.type === "textarea" ? <textarea required={field.required} value={formValues[field.key] || ""} placeholder={field.hint || ""} onChange={e => setFormValues(v => ({...v,[field.key]:e.target.value}))}/> :
-                    field.type === "select" ? <select required={field.required} value={formValues[field.key] ?? field.options?.[0] ?? ""} onChange={e => setFormValues(v => ({...v,[field.key]:e.target.value}))}>{field.options?.map(option => <option key={option} value={option}>{field.key.endsWith("Flag") ? (option === "1" ? "Có" : "Không") : option}</option>)}</select> :
-                    <input type={field.type === "time" ? "time" : "text"} required={field.required} value={formValues[field.key] || ""} placeholder={field.hint || ""} onChange={e => setFormValues(v => ({...v,[field.key]:e.target.value}))}/>}
+                    field.type === "select" ? <select required={field.required} disabled={module === "titles" && ["platform", "brand"].includes(field.key)} value={formValues[field.key] ?? field.options?.[0] ?? ""} onChange={e => setFormValues(v => ({...v,[field.key]:e.target.value}))}>{field.options?.map(option => <option key={option} value={option}>{field.key.endsWith("Flag") ? (option === "1" ? "Có" : "Không") : option}</option>)}</select> :
+                    <input type={field.type === "time" ? "time" : "text"} required={field.required} disabled={module === "titles" && ["platform", "brand"].includes(field.key)} value={formValues[field.key] || ""} placeholder={field.hint || ""} onChange={e => setFormValues(v => ({...v,[field.key]:e.target.value}))}/>}
                   {field.hint && <small>{field.hint}</small>}
                 </label>)}
               </div>

@@ -33,7 +33,14 @@ export async function listRecords(module: ModuleKey): Promise<RecordItem[]> {
 
 export async function saveRecord(module: ModuleKey, values: Record<string, string>, existing?: RecordItem): Promise<void> {
   await wait(260);
+  if (module !== "hosts" && !existing) {
+    throw new Error("Chỉ có thể tạo mới mã host.");
+  }
   if (existing) {
+    if (module === "titles" &&
+      (values.platform !== existing.values.platform || values.brand !== existing.values.brand)) {
+      throw new Error("Không thể thay đổi sàn hoặc thương hiệu của title.");
+    }
     data[module] = data[module].map(item => item.id === existing.id
       ? { ...item, values: { ...values }, version: `demo-${Date.now()}` }
       : item);
@@ -45,5 +52,8 @@ export async function saveRecord(module: ModuleKey, values: Record<string, strin
 
 export async function deleteRecord(module: ModuleKey, record: RecordItem): Promise<void> {
   await wait(220);
+  if (module !== "hosts") {
+    throw new Error("Chỉ có thể xóa mã host.");
+  }
   data[module] = data[module].filter(item => item.id !== record.id);
 }

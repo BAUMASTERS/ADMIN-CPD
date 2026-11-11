@@ -20,21 +20,6 @@ const ADMIN_SCHEDULE_COLUMNS = {
   isKeep: 19
 };
 
-function doGet() {
-  const template = HtmlService.createTemplateFromFile('Index');
-  template.isAppsScript = true;
-  template.bootstrapEnabled = Boolean(
-    PropertiesService.getScriptProperties().getProperty('ADMIN_SETUP_KEY')
-  );
-  return template.evaluate()
-    .setTitle('CPD MASTER · Quản trị')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
-}
-
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
-
 function adminBootstrap(setupKey, username, password) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -266,8 +251,11 @@ function adminDeleteRecord(token, section, hostGroup, rowNumber, version, divisi
   if (section === 'backgrounds') {
     throw new Error('Background được tạo theo brand và không thể xóa riêng.');
   }
+  if (section === 'titles') {
+    throw new Error('Không được xóa title đã được cấu hình.');
+  }
   const row = Number(rowNumber);
-  const firstDataRow = section === 'titles' ? 1 : 2;
+  const firstDataRow = 2;
   if (!Number.isInteger(row) || row < firstDataRow) {
     throw new Error('Dòng dữ liệu cần xóa không hợp lệ.');
   }
@@ -277,15 +265,10 @@ function adminDeleteRecord(token, section, hostGroup, rowNumber, version, divisi
     const spreadsheet = getAdminSpreadsheet_(division);
     const sheet = getSectionSheet_(spreadsheet, section, hostGroup);
     const hostConfig = section === 'hosts' ? getHostConfig_(spreadsheet, hostGroup) : null;
-    const width = section === 'hosts' ? 2 : (section === 'schedules' ? 20 : 8);
+    const width = section === 'hosts' ? 2 : 20;
     const startColumn = hostConfig ? hostConfig.nameColumn : 1;
     verifyCurrentRow_(sheet, row, startColumn, width, version);
-    if (section === 'titles') {
-      sheet.getRange(row, 1, 1, 2).clearContent();
-      sheet.getRange(row, 4, 1, 4).clearContent();
-    } else {
-      sheet.getRange(row, startColumn, 1, width).clearContent();
-    }
+    sheet.getRange(row, startColumn, 1, width).clearContent();
     return { success: true };
   } finally {
     lock.releaseLock();
@@ -353,23 +336,33 @@ function saveBackgroundRecord_(spreadsheet, record) {
 }
 
 function saveTitleRecord_(spreadsheet, record) {
+  if (record.rowNumber === undefined || record.rowNumber === null || record.rowNumber === '') {
+    throw new Error('Không được tạo title mới; chỉ có thể chỉnh sửa title đã có.');
+  }
   const sheet = requireSheet_(spreadsheet, 'TITLE');
   const values = record.values;
-  validateRequired_(values, ['platform', 'brand', 'title']);
+  validateRequired_(values, ['platform', 'brand', 'title', 'hostFlag', 'timeFlag', 'dateFlag']);
   ['hostFlag', 'timeFlag', 'dateFlag'].forEach(key => {
     if (!['0', '1'].includes(String(values[key]))) {
       throw new Error('Các tùy chọn tiền tố chỉ nhận giá trị 0 hoặc 1.');
     }
   });
   const rowNumber = getTargetRow_(sheet, record, 8, 1, 1);
-  const row = rowNumber ? sheet.getRange(rowNumber, 1, 1, 8).getDisplayValues()[0] : Array(8).fill('');
-  row[0] = cleanText_(values.platform, 'platform');
-  row[1] = cleanText_(values.brand, 'brand');
-  row[3] = String(values.hostFlag);
-  row[4] = String(values.timeFlag);
-  row[5] = String(values.dateFlag);
-  row[6] = cleanText_(values.title, 'title');
-  writeEntireRow_(sheet, rowNumber, row);
+  const row = sheet.getRange(rowNumber, 1, 1, 8).getDisplayValues()[0];
+  const currentValues = {
+    platform: row[0] || '',
+    brand: row[1] || '',
+    hostFlag: row[3] || '0',
+    timeFlag: row[4] || '0',
+    dateFlag: row[5] || '0',
+    title: row[6] || ''
+  };
+  const editableFields = ['hostFlag', 'timeFlag', 'dateFlag', 'title'];
+  validateRecordUpdate_(values, currentValues, editableFields, ['platform', 'brand']);
+  const columns = { hostFlag: 4, timeFlag: 5, dateFlag: 6, title: 7 };
+  const fieldsToWrite = editableFields.filter(key => Object.prototype.hasOwnProperty.call(values, key));
+  writeRowCells_(sheet, rowNumber, fieldsToWrite.map(key => columns[key]),
+    fieldsToWrite.map(key => key.endsWith('Flag') ? String(values[key]) : cleanText_(values[key], key)));
 }
 
 function saveHostRecord_(spreadsheet, hostGroup, record) {
