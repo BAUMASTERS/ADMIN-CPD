@@ -1,0 +1,433 @@
+<script>
+(() => {
+  const configs = {
+    schedules: {
+      title: 'Lịch phát sóng',
+      description: 'Chỉ cập nhật các trường vận hành của lịch đã import.',
+      columns: ['Ngày / khung giờ', 'Sàn / thương hiệu', 'Host / PIC', 'Phòng', 'Trạng thái'],
+      fields: [
+        ['host', 'Host / mã host', 'text'], ['douHost', 'Đa host', 'text'],
+        ['hostEco', 'Host ECO', 'text'], ['room', 'Phòng live', 'text'],
+        ['status', 'Trạng thái', 'text'], ['isKeep', 'Keep phiên live', 'text']
+      ]
+    },
+    backgrounds: {
+      title: 'Background',
+      description: 'Chỉnh sửa background của brand hiện có; không thể thêm hoặc xóa record.',
+      columns: ['Sàn / thương hiệu', 'Loại', 'Background 1', 'Background 2', 'Ghi chú'],
+      fields: [
+        ['type', 'Loại background', 'text'], ['link1', 'Đường dẫn background 1', 'text'],
+        ['note1', 'Ghi chú background 1', 'textarea'], ['link2', 'Đường dẫn background 2', 'text'],
+        ['note2', 'Ghi chú background 2', 'textarea'], ['sharedNote', 'Ghi chú chung', 'textarea']
+      ]
+    },
+    titles: {
+      title: 'Tiêu đề live',
+      description: 'Quản lý title và các tiền tố được ghép tự động.',
+      columns: ['Sàn / thương hiệu', 'Mẫu tiêu đề', 'Thành phần ghép'],
+      fields: [
+        ['platform', 'Sàn', 'text'], ['brand', 'Thương hiệu', 'text'],
+        ['title', 'Mẫu tiêu đề', 'textarea'], ['hostFlag', 'Ghép mã host', 'flag'],
+        ['timeFlag', 'Ghép giờ', 'flag'], ['dateFlag', 'Ghép ngày', 'flag']
+      ]
+    },
+    hosts: {
+      title: 'Mã host',
+      description: 'ECO lưu tại ECO ID (cột C:D); BAS lưu tại CPD ID (cột B:C).',
+      columns: ['Tên host', 'Mã host'],
+      fields: [['name', 'Tên host', 'text'], ['hostCode', 'Mã host', 'text']]
+    },
+    users: {
+      title: 'Tài khoản admin',
+      description: 'Chỉ superadmin được tạo hoặc khóa tài khoản admin.',
+      columns: ['Tên tài khoản', 'Vai trò', 'Trạng thái'],
+      fields: [['username', 'Tên tài khoản', 'text'], ['password', 'Mật khẩu (ít nhất 12 ký tự)', 'password']]
+    }
+  };
+  const $ = id => document.getElementById(id);
+  const state = {
+    token: sessionStorage.getItem('cpd-admin-token') || '',
+    username: sessionStorage.getItem('cpd-admin-username') || '',
+    role: sessionStorage.getItem('cpd-admin-role') || '',
+    division: 'CPD',
+    module: 'schedules',
+    hostGroup: 'ECO ID',
+    records: [],
+    editing: null,
+    busy: false
+  };
+
+  function rpc(method, args) {
+    return new Promise((resolve, reject) => {
+      if (!window.google || !google.script || !google.script.run) {
+        reject(new Error('Trang cần được mở từ Apps Script Web App.'));
+        return;
+      }
+      const runner = google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(error => reject(new Error(error && error.message ? error.message : 'Lỗi kết nối Apps Script.')));
+      runner[method].apply(runner, args);
+    });
+  }
+
+  function showMessage(element, message) {
+    element.textContent = message;
+    element.hidden = !message;
+  }
+
+  function showToast(message, error) {
+    const toast = document.createElement('div');
+    toast.className = 'toast' + (error ? ' error' : '');
+    toast.textContent = message;
+    $('toastRegion').appendChild(toast);
+    window.setTimeout(() => toast.remove(), 4000);
+  }
+
+  function setAuthMode(bootstrap) {
+    $('loginForm').hidden = bootstrap;
+    $('bootstrapForm').hidden = !bootstrap;
+    $('authTitle').textContent = bootstrap ? 'Khởi tạo quản trị' : 'Đăng nhập';
+    $('authDescription').textContent = bootstrap
+      ? 'Dùng setup key một lần để tạo superadmin đầu tiên.'
+      : 'Sử dụng tài khoản nội bộ do quản trị viên cấp.';
+  }
+
+  function startSession(session) {
+    state.token = session.token;
+    state.username = session.username;
+    state.role = session.role;
+    sessionStorage.setItem('cpd-admin-token', state.token);
+    sessionStorage.setItem('cpd-admin-username', state.username);
+    sessionStorage.setItem('cpd-admin-role', state.role);
+    $('currentUser').textContent = state.username + (state.role === 'superadmin' ? ' · Superadmin' : '');
+    $('usersNav').hidden = state.role !== 'superadmin';
+    $('usersMobileNav').hidden = state.role !== 'superadmin';
+    $('authGate').hidden = true;
+    $('adminApp').hidden = false;
+    loadRecords();
+  }
+
+  function clearSession() {
+    state.token = '';
+    state.username = '';
+    state.role = '';
+    sessionStorage.removeItem('cpd-admin-token');
+    sessionStorage.removeItem('cpd-admin-username');
+    sessionStorage.removeItem('cpd-admin-role');
+    $('adminApp').hidden = true;
+    $('authGate').hidden = false;
+    setAuthMode(false);
+  }
+
+  function callProtected(method, args) {
+    return rpc(method, [state.token].concat(args)).catch(error => {
+      if (/phiên đăng nhập|tài khoản đã bị khóa/i.test(error.message)) clearSession();
+      throw error;
+    });
+  }
+
+  function selectModule(module) {
+    if (!configs[module] || (module === 'users' && state.role !== 'superadmin')) return;
+    state.module = module;
+    state.editing = null;
+    document.querySelectorAll('[data-module]').forEach(button => {
+      button.classList.toggle('active', button.dataset.module === module);
+    });
+    $('breadcrumb').textContent = configs[module].title;
+    $('pageTitle').textContent = configs[module].title;
+    $('pageDescription').textContent = configs[module].description;
+    $('tableTitle').textContent = module === 'schedules' ? 'Danh sách khung giờ' : 'Danh sách ' + configs[module].title.toLowerCase();
+    $('createButton').hidden = !['titles', 'hosts', 'users'].includes(module);
+    $('createButton').textContent = module === 'users' ? '＋ Tạo tài khoản' : '＋ Tạo mới';
+    $('hostGroupWrap').hidden = module !== 'hosts';
+    $('searchInput').value = '';
+    loadRecords();
+  }
+
+  function loadRecords() {
+    $('loadingState').hidden = false;
+    $('emptyState').hidden = true;
+    $('tableBody').replaceChildren();
+    const module = state.module;
+    const request = module === 'users'
+      ? callProtected('adminListUsers', [])
+      : callProtected('adminListRecords', [module, state.hostGroup, state.division]);
+    request.then(records => {
+      state.records = Array.isArray(records) ? records : [];
+      $('loadingState').hidden = true;
+      renderRecords();
+    }).catch(error => {
+      $('loadingState').hidden = true;
+      $('emptyState').hidden = false;
+      $('emptyState').textContent = error.message;
+      showToast(error.message, true);
+    });
+  }
+
+  function cell(row, value, strong, label) {
+    const td = document.createElement('td');
+    if (strong) td.className = 'strong';
+    td.dataset.label = label || '';
+    td.textContent = value || '—';
+    row.appendChild(td);
+  }
+
+  function createAction(row, label, action, isDelete) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'row-action' + (isDelete ? ' delete' : '');
+    button.dataset.action = action;
+    button.dataset.row = String(row.rowNumber || '');
+    button.textContent = label;
+    return button;
+  }
+
+  function renderRecords() {
+    const module = state.module;
+    const config = configs[module];
+    const query = $('searchInput').value.trim().toLocaleLowerCase('vi');
+    const records = state.records.filter(record =>
+      !query || JSON.stringify(record.values || record).toLocaleLowerCase('vi').includes(query)
+    );
+    const head = document.createElement('tr');
+    config.columns.forEach(label => {
+      const th = document.createElement('th');
+      th.textContent = label;
+      head.appendChild(th);
+    });
+    const actionHeader = document.createElement('th');
+    actionHeader.textContent = 'Thao tác';
+    head.appendChild(actionHeader);
+    $('tableHead').replaceChildren(head);
+    $('tableBody').replaceChildren();
+
+    records.forEach(record => {
+      const row = document.createElement('tr');
+      if (module === 'users') {
+        cell(row, record.username, true, 'Tài khoản');
+        cell(row, record.role, false, 'Vai trò');
+        cell(row, record.active ? 'Đang hoạt động' : 'Đã khóa', false, 'Trạng thái');
+      } else {
+        const values = record.values || {};
+        if (module === 'schedules') {
+          cell(row, (values.date || '—') + ' · ' + (values.startTime || '—') + '–' + (values.endTime || '—'), true, 'Ngày / khung giờ');
+          cell(row, (values.platform || '—') + ' · ' + (values.brand || '—'), false, 'Sàn / thương hiệu');
+          cell(row, (values.host || '—') + (values.pic ? ' · PIC: ' + values.pic : ''), false, 'Host / PIC');
+          cell(row, values.room, false, 'Phòng');
+          cell(row, values.status, false, 'Trạng thái');
+        } else if (module === 'backgrounds') {
+          cell(row, (values.platform || '—') + ' · ' + (values.brand || '—'), true, 'Sàn / thương hiệu');
+          cell(row, values.type, false, 'Loại');
+          cell(row, values.link1, false, 'Background 1');
+          cell(row, values.link2, false, 'Background 2');
+          cell(row, values.sharedNote || values.note1 || values.note2, false, 'Ghi chú');
+        } else if (module === 'titles') {
+          cell(row, (values.platform || '—') + ' · ' + (values.brand || '—'), true, 'Sàn / thương hiệu');
+          cell(row, values.title, false, 'Mẫu tiêu đề');
+          cell(row, [
+            values.hostFlag === '1' ? 'Mã host' : '',
+            values.timeFlag === '1' ? 'Giờ' : '',
+            values.dateFlag === '1' ? 'Ngày' : ''
+          ].filter(Boolean).join(' · ') || 'Không ghép', false, 'Thành phần ghép');
+        } else {
+          cell(row, values.name, true, 'Tên host');
+          cell(row, values.hostCode, true, 'Mã host');
+        }
+      }
+
+      const actionsCell = document.createElement('td');
+      actionsCell.dataset.label = 'Thao tác';
+      const actions = document.createElement('div');
+      actions.className = 'actions';
+      if (module === 'users') {
+        if (record.role !== 'superadmin') {
+          const toggleButton = createAction(record, record.active ? 'Khóa' : 'Mở khóa', 'toggle-user', !record.active);
+          toggleButton.dataset.row = record.username;
+          actions.appendChild(toggleButton);
+        }
+      } else {
+        actions.appendChild(createAction(record, 'Sửa', 'edit', false));
+        if (module === 'hosts' || module === 'titles') {
+          actions.appendChild(createAction(record, 'Xóa', 'delete', true));
+        }
+      }
+      actionsCell.appendChild(actions);
+      row.appendChild(actionsCell);
+      $('tableBody').appendChild(row);
+    });
+
+    $('recordCount').textContent = records.length + ' / ' + state.records.length + ' bản ghi';
+    $('emptyState').hidden = records.length > 0;
+    if (!records.length) $('emptyState').textContent = query ? 'Không tìm thấy kết quả.' : 'Chưa có dữ liệu.';
+  }
+
+  function addFormField(key, label, type, value) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'form-field' + (type === 'textarea' ? ' full' : '');
+    const fieldLabel = document.createElement('label');
+    fieldLabel.textContent = label;
+    const input = type === 'textarea' ? document.createElement('textarea') : document.createElement('input');
+    if (type !== 'textarea') input.type = type === 'flag' ? 'text' : type;
+    input.name = key;
+    input.value = value || '';
+    input.autocomplete = 'off';
+    if (type === 'flag') input.placeholder = '0 hoặc 1';
+    fieldLabel.appendChild(input);
+    wrapper.appendChild(fieldLabel);
+    $('formFields').appendChild(wrapper);
+  }
+
+  function openRecordForm(record) {
+    state.editing = record || null;
+    $('recordForm').reset();
+    $('formError').hidden = true;
+    $('formFields').replaceChildren();
+    const module = state.module;
+    const fields = configs[module].fields;
+    fields.forEach(([key, label, type]) => {
+      const initial = record
+        ? (module === 'users' ? record[key] : (record.values || {})[key])
+        : (type === 'flag' ? '0' : '');
+      addFormField(key, label, type, initial);
+    });
+    $('modalTitle').textContent = record ? 'Cập nhật' : (module === 'users' ? 'Tạo tài khoản admin' : 'Tạo ' + configs[module].title.toLowerCase());
+    $('saveButton').textContent = state.busy ? 'Đang lưu...' : 'Lưu thay đổi';
+    $('modalBackdrop').hidden = false;
+    const first = $('formFields').querySelector('input,textarea');
+    if (first) first.focus();
+  }
+
+  function closeForm() {
+    if (!state.busy) $('modalBackdrop').hidden = true;
+  }
+
+  async function saveRecord(event) {
+    event.preventDefault();
+    if (state.busy) return;
+    const data = new FormData($('recordForm'));
+    const values = {};
+    configs[state.module].fields.forEach(([key]) => values[key] = String(data.get(key) || '').trim());
+    state.busy = true;
+    $('saveButton').disabled = true;
+    $('saveButton').textContent = 'Đang lưu...';
+    $('formError').hidden = true;
+    try {
+      if (state.module === 'users') {
+        await callProtected('adminCreateUser', [values.username, values.password]);
+        showToast('Đã tạo tài khoản admin.');
+      } else {
+        const record = { values: values };
+        if (state.editing) {
+          record.rowNumber = state.editing.rowNumber;
+          record.version = state.editing.version;
+        }
+        await callProtected('adminSaveRecord', [state.module, state.hostGroup, record, state.division]);
+        showToast(state.editing ? 'Đã cập nhật bản ghi.' : 'Đã tạo bản ghi.');
+      }
+      $('modalBackdrop').hidden = true;
+      await loadRecords();
+    } catch (error) {
+      showMessage($('formError'), error.message);
+    } finally {
+      state.busy = false;
+      $('saveButton').disabled = false;
+      $('saveButton').textContent = 'Lưu thay đổi';
+    }
+  }
+
+  async function deleteRecord(record) {
+    if (!window.confirm('Xóa bản ghi này? Thao tác sẽ cập nhật Google Sheets.')) return;
+    try {
+      await callProtected('adminDeleteRecord', [
+        state.module, state.hostGroup, record.rowNumber, record.version, state.division
+      ]);
+      showToast('Đã xóa bản ghi.');
+      loadRecords();
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  }
+
+  $('loginForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    showMessage($('authMessage'), '');
+    const data = new FormData(event.currentTarget);
+    try {
+      const session = await rpc('adminLogin', [data.get('username'), data.get('password')]);
+      if (!session.success) throw new Error(session.message);
+      event.currentTarget.reset();
+      startSession(session);
+    } catch (error) {
+      showMessage($('authMessage'), error.message);
+    }
+  });
+
+  $('bootstrapForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    showMessage($('authMessage'), '');
+    const data = new FormData(event.currentTarget);
+    try {
+      await rpc('adminBootstrap', [data.get('setupKey'), data.get('username'), data.get('password')]);
+      event.currentTarget.reset();
+      $('authGate').dataset.bootstrap = 'false';
+      setAuthMode(false);
+      showMessage($('authMessage'), 'Đã tạo superadmin. Đăng nhập bằng tài khoản vừa tạo.');
+      $('authMessage').hidden = false;
+    } catch (error) {
+      showMessage($('authMessage'), error.message);
+    }
+  });
+
+  $('logoutButton').addEventListener('click', async () => {
+    const token = state.token;
+    clearSession();
+    try {
+      await rpc('adminLogout', [token]);
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+  $('divisionSelect').addEventListener('change', event => {
+    state.division = event.target.value;
+    $('activeDivision').textContent = state.division;
+    loadRecords();
+  });
+  $('hostGroup').addEventListener('change', event => {
+    state.hostGroup = event.target.value;
+    loadRecords();
+  });
+  $('searchInput').addEventListener('input', renderRecords);
+  $('createButton').addEventListener('click', () => openRecordForm(null));
+  $('closeModal').addEventListener('click', closeForm);
+  $('cancelButton').addEventListener('click', closeForm);
+  $('modalBackdrop').addEventListener('click', event => {
+    if (event.target === $('modalBackdrop')) closeForm();
+  });
+  $('recordForm').addEventListener('submit', saveRecord);
+  $('tableBody').addEventListener('click', event => {
+    const button = event.target.closest('button[data-action]');
+    if (!button) return;
+    if (button.dataset.action === 'edit') {
+      const record = state.records.find(item => String(item.rowNumber) === button.dataset.row);
+      if (record) openRecordForm(record);
+    } else if (button.dataset.action === 'delete') {
+      const record = state.records.find(item => String(item.rowNumber) === button.dataset.row);
+      if (record) deleteRecord(record);
+    } else if (button.dataset.action === 'toggle-user') {
+      const record = state.records.find(item => item.username === button.dataset.row);
+      if (!record) return;
+      callProtected('adminSetUserActive', [record.username, !record.active])
+        .then(loadRecords)
+        .catch(error => showToast(error.message, true));
+    }
+  });
+  document.querySelectorAll('[data-module]').forEach(button => {
+    button.addEventListener('click', () => selectModule(button.dataset.module));
+  });
+
+  setAuthMode($('authGate').dataset.bootstrap === 'true');
+  if (state.token) {
+    startSession({ token: state.token, username: state.username, role: state.role });
+  }
+})();
+</script>
