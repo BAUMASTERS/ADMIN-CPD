@@ -1,13 +1,15 @@
-# CPD MASTER Admin
+# Force Shadow · Operations
 
 Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backend. Frontend hiện dùng mock data để hoàn thiện và thử luồng giao diện, chưa kết nối backend. Thao tác thêm/sửa/xóa trong bản demo chỉ có hiệu lực trong phiên trình duyệt hiện tại.
 
 ## Giao diện quản trị
 
-- Bản desktop dùng không gian tối, điều hướng dạng media library và điểm nhấn “Dark Phoenix” (than, đỏ lửa, hổ phách).
-- Bản mobile ưu tiên thao tác nhanh một tay, lối tắt module và thanh điều hướng dưới.
+- Dashboard là màn hình mặc định, gồm tổng quan studio và tracking lịch sắp tới.
+- Bản desktop dùng nền tối, sidebar thu gọn và mở rộng khi rê chuột/focus; bảng màu burgundy và ice blue.
+- Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và danh sách tracking dạng thẻ.
+- Chỉ có chế độ Sáng/Tối.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
-- Lịch live có chế độ tháng/tuần/ngày và danh sách lịch xem có thể thêm/bỏ.
+- Lịch live có chế độ xem theo tháng hoặc ngày (không có chế độ tuần); danh sách lịch xem có thể thêm/bỏ.
 - Background hiển thị theo hồ sơ brand; form chọn ảnh chỉ xem trước tại trình duyệt, chưa upload lên Drive.
 - Title chỉ sửa title và các tùy chọn ghép trên record có sẵn; không tạo/xóa, không sửa sàn/thương hiệu.
 - Mã host có lựa chọn ECO/BAS và CRUD dữ liệu mẫu.
@@ -16,6 +18,8 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Livestream Checking và Warning Checking được hiển thị là tính năng sắp phát triển.
 
 Mọi nhãn “demo” hoặc “mô phỏng” đều có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
+
+Tracking được thiết kế để dùng dữ liệu từ spreadsheet `1ja9bF2VI05hPMz_wDiDK6fnbR4nc605UP3IXz57bB3c`, sheet `LỊCH SẮP TỚI`. Frontend hiện chưa kết nối API đọc dữ liệu này, vì vậy dashboard vẫn dùng dữ liệu mẫu.
 
 ## Apps Script
 

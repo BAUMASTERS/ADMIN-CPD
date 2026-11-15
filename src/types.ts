@@ -1,6 +1,5 @@
 export type ModuleKey = "schedules" | "backgrounds" | "titles" | "hosts";
-export type ThemeMode = "light" | "dark" | "system";
-export type Accent = "phoenix" | "ember" | "blue" | "green";
+export type ThemeMode = "light" | "dark";
 
 export type RecordItem = {
   id: string;

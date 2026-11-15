@@ -10,11 +10,11 @@ function demoDate(offsetDays: number) {
 
 const seed: Record<ModuleKey, RecordItem[]> = {
   schedules: [
-    { id: "sch-001", rowNumber: 2, version: "demo-1", values: { date: demoDate(0), startTime: "09:00", endTime: "11:00", type: "Lịch mega", platform: "Shopee", brand: "Brand A", host: "Nguyễn A", pic: "Trần B", room: "Phòng 01", status: "Đang live" } },
-    { id: "sch-002", rowNumber: 3, version: "demo-2", values: { date: demoDate(0), startTime: "13:00", endTime: "15:00", type: "Booking host", platform: "TikTok", brand: "Brand B", host: "Nguyễn C", pic: "Trần D", room: "Phòng 02", status: "Sắp live" } },
-    { id: "sch-003", rowNumber: 4, version: "demo-3", values: { date: demoDate(1), startTime: "15:00", endTime: "17:00", type: "Lịch mega", platform: "Shopee", brand: "Brand C", host: "Nguyễn E", pic: "Trần F", room: "Phòng 03", status: "Đang hoạt động" } },
-    { id: "sch-004", rowNumber: 5, version: "demo-4", values: { date: demoDate(4), startTime: "10:00", endTime: "12:00", type: "Lịch campaign", platform: "TikTok", brand: "Brand D", host: "Nguyễn G", pic: "Trần H", room: "Phòng 04", status: "Sắp live" } },
-    { id: "sch-005", rowNumber: 6, version: "demo-5", values: { date: demoDate(6), startTime: "19:00", endTime: "21:00", type: "Booking host", platform: "Shopee", brand: "Brand E", host: "Nguyễn I", pic: "Trần K", room: "Phòng 02", status: "Đang hoạt động" } }
+    { id: "sch-001", rowNumber: 2, version: "demo-1", values: { date: demoDate(0), startTime: "09:00", endTime: "11:00", type: "Lịch mega", studio: "Big Studio", platform: "Shopee", brand: "Brand A", host: "Nguyễn A", pic: "Trần B", room: "LED 100", status: "Đang live" } },
+    { id: "sch-002", rowNumber: 3, version: "demo-2", values: { date: demoDate(0), startTime: "13:00", endTime: "15:00", type: "Booking host", studio: "Studio Himlam", platform: "TikTok", brand: "Brand B", host: "Nguyễn C", pic: "Trần D", room: "LED 50", status: "Sắp live" } },
+    { id: "sch-003", rowNumber: 4, version: "demo-3", values: { date: demoDate(1), startTime: "15:00", endTime: "17:00", type: "Lịch mega", studio: "Big Studio", platform: "Shopee", brand: "Brand C", host: "Nguyễn E", pic: "Trần F", room: "LED 70 ECO", status: "Đang hoạt động" } },
+    { id: "sch-004", rowNumber: 5, version: "demo-4", values: { date: demoDate(4), startTime: "10:00", endTime: "12:00", type: "Lịch campaign", studio: "Studio Q8", platform: "TikTok", brand: "Brand D", host: "Nguyễn G", pic: "Trần H", room: "P110 L1", status: "Sắp live" } },
+    { id: "sch-005", rowNumber: 6, version: "demo-5", values: { date: demoDate(6), startTime: "19:00", endTime: "21:00", type: "Booking host", studio: "Studio thuê ngoài", platform: "Shopee", brand: "Brand E", host: "Nguyễn I", pic: "Trần K", room: "SemiMega 3CE", status: "Đang hoạt động" } }
   ],
   backgrounds: [
     { id: "bg-001", rowNumber: 2, version: "demo-1", values: { platform: "Shopee", brand: "Brand A", type: "Main", link1: "Google Drive", note1: "Background chính", sharedNote: "Đã duyệt" } },

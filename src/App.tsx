@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
-  Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Cloud, Command, Flame,
-  Database, FileText, LockKeyhole, Menu, Monitor, Moon,
-  MoreHorizontal, Package, Pencil, Plus, Search, Settings, Sun, Trash2, Upload,
-  Users, X, Check, Bell, Library, Clock3, Image,
+  Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Command,
+  Database, FileText, LockKeyhole, Menu, Moon,
+  MoreHorizontal, Monitor, Package, Pencil, Plus, Search, Settings, Sun, Trash2, Upload,
+  Users, X, Check, Bell, Library, Clock3, Image, LayoutDashboard,
   CircleHelp, ExternalLink, ShieldCheck
 } from "lucide-react";
 import { deleteRecord, listRecords, saveRecord } from "./services/records";
-import { moduleConfig, moduleKeys, type Accent, type ModuleKey, type RecordItem, type ThemeMode } from "./types";
+import { moduleConfig, moduleKeys, type ModuleKey, type RecordItem, type ThemeMode } from "./types";
 
-type Screen = ModuleKey | "library" | "admin-users" | "livestream-checking" | "warning-checking";
+type Screen = "dashboard" | ModuleKey | "library" | "admin-users" | "livestream-checking" | "warning-checking";
 type Division = "CPD" | "P&G";
-type CalendarView = "month" | "week" | "day";
+type CalendarView = "month" | "day";
 type LibraryItem = { id: string; name: string; division: Division; description: string; updated: string };
 type CalendarSource = { id: string; name: string; color: string };
 type AdminAccount = { username: string; role: "admin" | "superadmin"; active: boolean };
@@ -24,9 +24,9 @@ const icons = {
 };
 
 const initialSources: CalendarSource[] = [
-  { id: "mega", name: "Lịch mega", color: "var(--accent)" },
-  { id: "booking", name: "Booking host", color: "var(--blue)" },
-  { id: "campaign", name: "Lịch campaign", color: "var(--green)" }
+  { id: "mega", name: "Lịch mega", color: "var(--ice-blue)" },
+  { id: "booking", name: "Booking host", color: "var(--accent)" },
+  { id: "campaign", name: "Lịch campaign", color: "var(--amber)" }
 ];
 
 const initialLibrary: LibraryItem[] = [
@@ -80,23 +80,12 @@ function formatMonth(date: Date) {
   return new Intl.DateTimeFormat("vi-VN", { month: "long", year: "numeric" }).format(date);
 }
 
-function startOfWeek(date: Date) {
-  const start = new Date(date);
-  start.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
 export default function App() {
-  const [screen, setActiveScreen] = useState<Screen>("schedules");
+  const [screen, setActiveScreen] = useState<Screen>("dashboard");
   const [division, setDivision] = useState<Division>("CPD");
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [query, setQuery] = useState("");
-  const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("cpd-theme") as ThemeMode) || "dark");
-  const [accent, setAccent] = useState<Accent>(() => {
-    const savedAccent = localStorage.getItem("cpd-accent");
-    return savedAccent === "ember" || savedAccent === "blue" || savedAccent === "green" ? savedAccent : "phoenix";
-  });
+  const [theme, setTheme] = useState<ThemeMode>(() => localStorage.getItem("cpd-theme") === "light" ? "light" : "dark");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -123,6 +112,8 @@ export default function App() {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountModal, setAccountModal] = useState(false);
   const [accountDraft, setAccountDraft] = useState({ username: "", password: "" });
+  const [studioFilter, setStudioFilter] = useState("Tất cả");
+  const [trackingFilter, setTrackingFilter] = useState("Tất cả");
 
   const isDataModule = moduleKeys.includes(screen as ModuleKey);
   const module = (isDataModule ? screen : "schedules") as ModuleKey;
@@ -130,24 +121,20 @@ export default function App() {
   const canCreate = module === "hosts";
   const canDelete = module === "hosts";
   const canManageLibrary = demoRole === "superadmin";
-  const effectiveTheme = theme === "system"
-    ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-    : theme;
 
   useEffect(() => {
-    document.documentElement.dataset.theme = effectiveTheme;
-    document.documentElement.dataset.accent = accent;
+    document.documentElement.dataset.theme = theme;
     localStorage.setItem("cpd-theme", theme);
-    localStorage.setItem("cpd-accent", accent);
-  }, [theme, accent, effectiveTheme]);
+  }, [theme]);
 
   useEffect(() => {
-    if (!isDataModule) return;
+    if (!isDataModule && screen !== "dashboard") return;
     let active = true;
-    listRecords(module, division, hostGroup).then(result => { if (active) setRecords(result); });
+    const dataModule = isDataModule ? module : "schedules";
+    listRecords(dataModule, division, hostGroup).then(result => { if (active) setRecords(result); });
     setQuery("");
     return () => { active = false; };
-  }, [module, isDataModule, division, hostGroup]);
+  }, [module, screen, isDataModule, division, hostGroup]);
 
   useEffect(() => () => {
     if (localImageUrl) URL.revokeObjectURL(localImageUrl);
@@ -169,15 +156,23 @@ export default function App() {
     return !source || visibleSources.includes(source.id);
   }), [records, sources, visibleSources]);
 
-  const activeCount = records.filter(record => !/hủy|hoàn tất/i.test(record.values.status || "")).length;
+  const activeCount = records.filter(record => /đang hoạt động|online/i.test(record.values.status || "")).length;
+  const liveCount = records.filter(record => /đang live/i.test(record.values.status || "")).length;
+  const offlineCount = records.filter(record => /offline|ngoại tuyến/i.test(record.values.status || "")).length;
+  const warningCount = records.filter(record => /warning|cảnh báo|hủy/i.test(record.values.status || "")).length;
+  const studioNames = Array.from(new Set(records.map(record => record.values.studio || "Chưa phân loại")));
+  const studioRecords = studioFilter === "Tất cả" ? records : records.filter(record => record.values.studio === studioFilter);
+  const trackingRecords = studioRecords.filter(record => trackingFilter === "Tất cả" || record.values.type === trackingFilter);
+  const rooms = Array.from(new Set(records.map(record => `${record.values.studio || "Chưa phân loại"}|${record.values.room || "Chưa xếp phòng"}`)));
   const screenTitle = isDataModule ? config.title
-    : screen === "library" ? "Thư viện" : screen === "admin-users" ? "Tài khoản admin"
+    : screen === "dashboard" ? "Tổng quan" : screen === "library" ? "Thư viện" : screen === "admin-users" ? "Tài khoản admin"
       : screen === "livestream-checking" ? "Livestream Checking" : "Warning Checking";
   const visibleLibrary = library.filter(item => libraryFilter === "all" || item.division === libraryFilter);
 
   async function refresh() {
-    if (!isDataModule) return;
-    setRecords(await listRecords(module, division, hostGroup));
+    const dataModule = isDataModule ? module : screen === "dashboard" ? "schedules" : null;
+    if (!dataModule) return;
+    setRecords(await listRecords(dataModule, division, hostGroup));
     setToast("Đã làm mới dữ liệu demo.");
   }
 
@@ -227,8 +222,18 @@ export default function App() {
   function shiftCalendar(direction: number) {
     const next = new Date(selectedDate);
     if (calendarView === "month") next.setMonth(next.getMonth() + direction);
-    else next.setDate(next.getDate() + direction * (calendarView === "week" ? 7 : 1));
+    else next.setDate(next.getDate() + direction);
     setSelectedDate(next);
+  }
+
+  function getRecordsForRoomDay(roomKey: string, day: number) {
+    const [studio, room] = roomKey.split("|");
+    const targetDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+    return records.filter(record => {
+      const recordDate = parseRecordDate(record.values.date || "", targetDate.getFullYear());
+      return record.values.studio === studio && record.values.room === room &&
+        recordDate !== null && dateKey(recordDate) === dateKey(targetDate);
+    });
   }
 
   function getRecordsForDate(date: Date) {
@@ -337,9 +342,9 @@ export default function App() {
     <div className="app-shell">
       <header className="topbar">
         <button className="icon-button mobile-only" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Mở menu"><Menu/></button>
-        <a className="brand" href="#" onClick={event => event.preventDefault()}>
-          <span className="brand-symbol"><Flame size={25}/><Activity size={14}/></span>
-          <span>CPD MASTER<small>DARK PHOENIX · OPERATIONS</small></span>
+        <a className="brand" href="#" onClick={event => { event.preventDefault(); setScreen("dashboard"); }}>
+          <span className="brand-symbol"><b>FS</b></span>
+          <span>FORCE SHADOW<small>OPERATIONS WORKSPACE</small></span>
         </a>
         <div className="global-search"><Search size={18}/><input aria-label="Tìm kiếm dữ liệu" placeholder="Tìm kiếm dữ liệu..." value={query} onChange={event => setQuery(event.target.value)}/><kbd>⌘ K</kbd></div>
         <div className="top-actions">
@@ -352,9 +357,11 @@ export default function App() {
 
       <div className="workspace">
         <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
-          <div className="workspace-caption">KHÔNG GIAN LÀM VIỆC</div>
-          <label className="workspace-switch"><span className="workspace-avatar">{division === "CPD" ? "C" : "P"}</span><span><b>{division} MASTER</b><small>Chuyển division phía trên</small></span><ChevronDown size={16}/></label>
-          <div className="nav-caption">QUẢN LÝ DỮ LIỆU</div>
+          <div className="workspace-caption">FORCE SHADOW</div>
+          <label className="workspace-switch"><span className="workspace-avatar">{division === "CPD" ? "C" : "P"}</span><span className="sidebar-copy"><b>{division} MASTER</b><small>Division đang làm việc</small></span><ChevronDown size={16}/></label>
+          <div className="nav-caption">KHÔNG GIAN LÀM VIỆC</div>
+          <nav className="side-nav">{navButton("dashboard", "Tổng quan", LayoutDashboard)}</nav>
+          <div className="nav-caption secondary-nav-caption">QUẢN LÝ DỮ LIỆU</div>
           <nav className="side-nav">
             {moduleKeys.map(key => navButton(key, moduleConfig[key].title, icons[key]))}
             {navButton("library", "Thư viện", Library)}
@@ -367,9 +374,9 @@ export default function App() {
           <div className="nav-caption secondary-nav-caption">QUẢN TRỊ</div>
           <nav className="side-nav">{navButton("admin-users", "Tài khoản admin", ShieldCheck)}</nav>
           <div className="sidebar-bottom">
-            <div className="connection-card demo-connection"><span className="connection-dot"/><span><b>Chế độ giao diện demo</b><small>Dữ liệu chỉ lưu trong phiên</small></span></div>
+            <div className="connection-card demo-connection"><span className="connection-dot"/><span className="sidebar-copy"><b>Chế độ giao diện demo</b><small>Dữ liệu chỉ lưu trong phiên</small></span></div>
             <button className="profile-button" onClick={() => setDemoRole(current => current === "admin" ? "superadmin" : "admin")} title="Chuyển vai trò mô phỏng">
-              <span className="profile-avatar">AD</span><span><b>Admin CPD</b><small>{demoRole === "superadmin" ? "Superadmin · mô phỏng" : "Admin · mô phỏng"}</small></span>
+              <span className="profile-avatar">AD</span><span className="sidebar-copy"><b>Admin CPD</b><small>{demoRole === "superadmin" ? "Superadmin · mô phỏng" : "Admin · mô phỏng"}</small></span>
               <MoreHorizontal size={18}/>
             </button>
           </div>
@@ -377,12 +384,12 @@ export default function App() {
         {mobileMenu && <button className="sidebar-scrim" aria-label="Đóng menu" onClick={() => setMobileMenu(false)}/>}
 
         <main className="main-content">
-          <div className="breadcrumb"><span>{division} MASTER</span><span>/</span><b>{screenTitle}</b></div>
+          <div className="breadcrumb"><span>FORCE SHADOW</span><span>/</span><span>{division}</span><span>/</span><b>{screenTitle}</b></div>
           <section className="page-heading">
             <div>
               <div className="eyebrow"><span/> TRUNG TÂM VẬN HÀNH · {division}</div>
               <h1>{screenTitle}</h1>
-              <p>{isDataModule ? config.description : screen === "library" ? "Danh mục sheet dùng trong vận hành theo từng division." : "Tính năng đang được chuẩn bị cho giai đoạn tiếp theo."}</p>
+              <p>{isDataModule ? config.description : screen === "dashboard" ? "Tổng quan phòng live và tiến độ theo dõi trong ngày." : screen === "library" ? "Danh mục sheet dùng trong vận hành theo từng division." : "Tính năng đang được chuẩn bị cho giai đoạn tiếp theo."}</p>
             </div>
             <div className="heading-actions">
               {isDataModule && <button className="outline-button" onClick={refresh}><Activity size={16}/> Làm mới</button>}
@@ -391,28 +398,65 @@ export default function App() {
             </div>
           </section>
 
-          {isDataModule && <>
-            {module === "schedules" && <section className="phoenix-hero">
-              <div className="phoenix-hero-copy">
-                <span className="phoenix-kicker"><Flame size={14}/> PHOENIX OPERATIONS · {division}</span>
-                <h2>Mọi phiên live,<br/><em>đúng nhịp vận hành.</em></h2>
-                <p>Lịch phát sóng trong ngày được gom tại một nơi. Chọn ngày để xem lịch theo ca.</p>
-                <div className="phoenix-hero-actions">
-                  <button className="hero-primary" onClick={() => { setSelectedDate(new Date()); setCalendarView("day"); }}>Xem lịch hôm nay <ChevronRight size={16}/></button>
-                  <button className="hero-secondary" onClick={() => setCalendarView("week")}>Xem cả tuần</button>
+          {screen === "dashboard" && <div className="dashboard-content">
+            <section className="overview-section">
+              <div className="section-title-row"><div><span className="section-kicker">LIVE OPERATIONS</span><h2>Tổng quan hệ thống</h2></div><span className="demo-pill"><i/> DEMO DATA</span></div>
+              <div className="overview-cards">
+                {[
+                  { label: "Tổng phòng", value: rooms.length, detail: "Tất cả studio", icon: LayoutDashboard, tone: "ice" },
+                  { label: "Đang online", value: activeCount, detail: `${rooms.length ? Math.round(activeCount / rooms.length * 100) : 0}% tổng số phòng`, icon: Activity, tone: "green" },
+                  { label: "Đang live", value: liveCount, detail: `${rooms.length ? Math.round(liveCount / rooms.length * 100) : 0}% tổng số phòng`, icon: Activity, tone: "red" },
+                  { label: "Đang offline", value: offlineCount, detail: `${rooms.length ? Math.round(offlineCount / rooms.length * 100) : 0}% tổng số phòng`, icon: LayoutDashboard, tone: "neutral" },
+                  { label: "Warning", value: warningCount, detail: "Cần kiểm tra", icon: CircleHelp, tone: "amber" }
+                ].map(item => <article className={`overview-card tone-${item.tone}`} key={item.label}>
+                  <span className="overview-icon"><item.icon size={22}/></span><span className="overview-copy"><b>{item.label}</b><strong>{item.value}</strong><small>{item.detail}</small></span>
+                </article>)}
+              </div>
+              <div className="studio-tracking-heading"><div><span className="section-kicker">STUDIO STATUS</span><h2>Tình trạng theo Studio</h2></div><label className="studio-search"><Search size={16}/><input aria-label="Tìm studio" placeholder="Tìm studio..." value={query} onChange={event => setQuery(event.target.value)}/></label></div>
+              <div className="studio-tracking-layout">
+                <div className="studio-cards">
+                  {studioNames.filter(name => !query || name.toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi"))).map(name => {
+                    const studioItems = records.filter(record => (record.values.studio || "Chưa phân loại") === name);
+                    const live = studioItems.filter(record => /đang live/i.test(record.values.status || "")).length;
+                    const notLive = studioItems.length - live;
+                    return <button className={`studio-card ${studioFilter === name ? "studio-selected" : ""}`} key={name} onClick={() => setStudioFilter(studioFilter === name ? "Tất cả" : name)}>
+                      <span className="studio-card-head"><span className="studio-mark"><LayoutDashboard size={20}/></span><span><b>{name}</b><small>{new Set(studioItems.map(record => record.values.room)).size} phòng vật lý</small></span></span>
+                      <span className="studio-stats"><span><b>{live}</b><small><i className="dot-live"/>Đang live</small></span><span><b>{notLive}</b><small><i className="dot-idle"/>Không live</small></span></span>
+                    </button>;
+                  })}
+                  {!studioNames.length && <div className="studio-empty">Đang tải dữ liệu studio...</div>}
+                </div>
+                <div className="tracking-controls">
+                  <div className="tracking-filter-grid">{["Tất cả", "Lịch mega", "Booking host", "Lịch campaign"].map(filter => <button key={filter} className={trackingFilter === filter ? "selected" : ""} onClick={() => setTrackingFilter(filter)}>{filter === "Tất cả" ? <LayoutDashboard size={16}/> : filter === "Lịch mega" ? <Monitor size={16}/> : filter === "Booking host" ? <CalendarDays size={16}/> : <FileText size={16}/>}<span>{filter}</span></button>)}</div>
                 </div>
               </div>
-              <div className="phoenix-orbit" aria-hidden="true"><div className="phoenix-orbit-ring"/><div className="phoenix-orbit-core"><Flame size={48}/></div><i/><i/><i/></div>
-              <div className="phoenix-hero-stats"><span><b>{scheduleRecords.length}</b><small>lịch trong mẫu</small></span><span><b>{sources.length}</b><small>nguồn đang theo dõi</small></span><span><b>{division}</b><small>workspace</small></span></div>
-            </section>}
-            {module === "schedules" && <nav className="quick-services" aria-label="Thao tác nhanh">
-              <span className="quick-services-label">Truy cập nhanh</span>
-              {moduleKeys.filter(key => key !== "schedules").map(key => {
-                const Icon = icons[key];
-                return <button key={key} onClick={() => setScreen(key)}><span><Icon size={17}/></span><b>{moduleConfig[key].title}</b><ChevronRight size={14}/></button>;
-              })}
-              <button onClick={() => setScreen("library")}><span><Library size={17}/></span><b>Thư viện</b><ChevronRight size={14}/></button>
-            </nav>}
+            </section>
+            <section className="tracking-section">
+              <div className="tracking-section-heading"><div><span className="section-kicker">UPCOMING TRACKING</span><h2>Tracking lịch sắp tới</h2><p>Nguồn dự kiến: sheet “LỊCH SẮP TỚI” · dữ liệu mẫu cho tới khi kết nối backend.</p></div><button className="outline-button" onClick={() => setScreen("schedules")}><CalendarDays size={16}/> Lịch tháng</button></div>
+              <div className="tracking-table-wrap"><table className="tracking-table">
+                <thead><tr><th>Studio / phòng</th><th>Tình trạng</th><th>Nội dung</th><th>Host</th><th>Bắt đầu</th><th>Kết thúc</th></tr></thead>
+                <tbody>{trackingRecords.map(record => <tr key={record.id}>
+                  <td><b>{record.values.studio || "—"}</b><small>{record.values.room || "Chưa xếp phòng"}</small></td>
+                  <td><span className={statusClass(record.values.status)}>{record.values.status || "Chưa cập nhật"}</span></td>
+                  <td><b>{record.values.brand || "—"}</b><small>{record.values.type} · {record.values.platform}</small></td>
+                  <td>{record.values.host || "Chưa gán"}</td>
+                  <td>{record.values.date} · {record.values.startTime}</td>
+                  <td>{record.values.endTime}</td>
+                </tr>)}</tbody>
+              </table>{!trackingRecords.length && <div className="empty-state"><Database size={25}/><b>Không có lịch phù hợp</b><span>Thay đổi bộ lọc Studio hoặc loại lịch.</span></div>}</div>
+              <div className="tracking-mobile-list">
+                {trackingRecords.map(record => <article className="tracking-mobile-card" key={record.id}>
+                  <div className="tracking-mobile-card-head"><span><b>{record.values.brand || "—"}</b><small>{record.values.studio || "Chưa phân loại"} · {record.values.room || "Chưa xếp phòng"}</small></span><span className={statusClass(record.values.status)}>{record.values.status || "Chưa cập nhật"}</span></div>
+                  <p>{record.values.type} · {record.values.platform}</p>
+                  <div className="tracking-mobile-meta"><span>{record.values.host || "Chưa gán"}</span><span>{record.values.date} · {record.values.startTime}–{record.values.endTime}</span></div>
+                </article>)}
+                {!trackingRecords.length && <div className="empty-state"><Database size={25}/><b>Không có lịch phù hợp</b><span>Thay đổi bộ lọc Studio hoặc loại lịch.</span></div>}
+              </div>
+              <div className="tracking-footnote"><LockKeyhole size={14}/> Dữ liệu lịch đang hiển thị bằng dữ liệu mẫu, chưa đọc từ Google Sheets.</div>
+            </section>
+          </div>}
+
+          {isDataModule && <>
             <section className="metric-row">
               <div className="metric-card"><span className="metric-icon"><Database size={18}/></span><span><small>{`Tổng ${config.singular}`}</small><b>{records.length}</b></span></div>
               <div className="metric-card"><span className="metric-icon metric-icon-green"><Check size={18}/></span><span><small>Đang hoạt động</small><b>{activeCount}</b></span></div>
@@ -428,9 +472,9 @@ export default function App() {
                       <button className="outline-button" aria-label="Tiến" onClick={() => shiftCalendar(1)}><ChevronRight size={17}/></button>
                     </div>
                     <h2>{formatMonth(selectedDate)}</h2>
-                    <button className="outline-button today-button" onClick={() => { setSelectedDate(new Date()); if (window.innerWidth < 760) setCalendarView("day"); }}>Hôm nay</button>
+                    <button className="outline-button today-button" onClick={() => { setSelectedDate(new Date()); setCalendarView("month"); }}>Tháng này</button>
                   </div>
-                  <div className="calendar-view-switch">{(["month", "week", "day"] as CalendarView[]).map(view => <button key={view} className={calendarView === view ? "selected" : ""} onClick={() => setCalendarView(view)}>{view === "month" ? "Tháng" : view === "week" ? "Tuần" : "Ngày"}</button>)}</div>
+                  <div className="calendar-view-switch">{(["month", "day"] as CalendarView[]).map(view => <button key={view} className={calendarView === view ? "selected" : ""} onClick={() => setCalendarView(view)}>{view === "month" ? "Tháng" : "Theo ngày"}</button>)}</div>
                 </div>
                 <div className="calendar-source-row">
                   <div className="calendar-source-list">{sources.map(source => <span className="calendar-source-chip" key={source.id}>
@@ -440,40 +484,48 @@ export default function App() {
                   <button className="filter-button" onClick={() => setSourceModal(true)}><Plus size={15}/><span>Thêm lịch xem</span></button>
                 </div>
                 {calendarView === "month" ? (
-                  <div className="month-grid">
-                    {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map(day => <div className="weekday-heading" key={day}>{day}</div>)}
-                    {(() => {
-                      const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-                      const firstCell = startOfWeek(monthStart);
-                      return Array.from({ length: 42 }, (_, index) => {
-                        const date = new Date(firstCell);
-                        date.setDate(firstCell.getDate() + index);
-                        const events = getRecordsForDate(date);
-                        return <button key={dateKey(date)} className={`month-cell ${date.getMonth() !== selectedDate.getMonth() ? "outside-month" : ""} ${dateKey(date) === dateKey(selectedDate) ? "selected-day" : ""}`} onClick={() => { setSelectedDate(date); if (window.innerWidth < 760) setCalendarView("day"); }}>
-                          <span className="month-cell-date">{date.getDate()}</span>
-                          <span className="month-cell-events">{events.slice(0, 2).map(event => <span className="calendar-event" key={event.id}><i style={{ background: sources.find(source => source.name === (event.values.type || "Lịch mega"))?.color || "var(--accent)" }}/><b>{event.values.startTime} {event.values.brand}</b></span>)}{events.length > 2 && <small>+{events.length - 2} lịch</small>}</span>
+                  <div className="room-schedule-scroll">
+                    <div className="room-schedule-grid" style={{ gridTemplateColumns: `190px repeat(${new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate()}, minmax(52px, 1fr))` }}>
+                      <div className="room-grid-corner">STUDIO / PHÒNG</div>
+                      {Array.from({ length: new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate() }, (_, index) => {
+                        const day = index + 1;
+                        const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+                        return <button key={day} className={`room-grid-day ${dateKey(date) === dateKey(new Date()) ? "room-grid-today" : ""}`} onClick={() => { setSelectedDate(date); setCalendarView("day"); }}>
+                          <b>{day}</b><small>{new Intl.DateTimeFormat("vi-VN", { weekday: "short" }).format(date)}</small>
                         </button>;
-                      });
-                    })()}
+                      })}
+                      {rooms.map(roomKey => {
+                        const [studio, room] = roomKey.split("|");
+                        return <div className="room-grid-row" key={roomKey} style={{ display: "contents" }}>
+                          <div className="room-grid-label"><small>{studio}</small><b>{room}</b></div>
+                          {Array.from({ length: new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate() }, (_, index) => {
+                            const day = index + 1;
+                            const events = getRecordsForRoomDay(roomKey, day).filter(event => {
+                              const sourceName = event.values.type || "Lịch mega";
+                              const source = sources.find(item => item.name === sourceName) || initialSources.find(item => item.name === sourceName);
+                              return !source || visibleSources.includes(source.id);
+                            });
+                            return <div className="room-grid-cell" key={`${roomKey}-${day}`}>
+                              {events.map(event => <button key={event.id} className={`room-booking ${/đang live/i.test(event.values.status || "") ? "booking-live" : ""}`} title={`${event.values.brand} · ${event.values.startTime}–${event.values.endTime}`} onClick={() => openEdit(event)}>{event.values.brand}</button>)}
+                            </div>;
+                          })}
+                        </div>;
+                      })}
+                    </div>
                   </div>
                 ) : (
-                  <div className={`agenda-view ${calendarView === "day" ? "single-day" : ""}`}>
-                    {(calendarView === "day" ? [selectedDate] : Array.from({ length: 7 }, (_, index) => {
-                      const date = startOfWeek(selectedDate); date.setDate(date.getDate() + index); return date;
-                    })).map(date => {
-                      const events = getRecordsForDate(date);
-                      return <section className="agenda-day" key={dateKey(date)}>
-                        <div className="agenda-date"><b>{date.getDate()}</b><span>{new Intl.DateTimeFormat("vi-VN", { weekday: "short" }).format(date)}</span></div>
-                        <div className="agenda-events">{events.length ? events.map(event => <button className="agenda-event" key={event.id} onClick={() => openEdit(event)}>
-                          <span className="agenda-event-time">{event.values.startTime || "--:--"}<small>{event.values.endTime || "--:--"}</small></span>
-                          <span className="agenda-event-main"><b>{event.values.brand}</b><small>{event.values.type} · {event.values.platform} · Host: {event.values.host || "Chưa gán"}</small></span>
-                          <span className={statusClass(event.values.status)}>{event.values.status || "Chưa đặt"}</span><Pencil size={15}/>
-                        </button>) : <div className="agenda-empty">Không có lịch</div>}</div>
-                      </section>;
+                  <div className="daily-room-list">
+                    <div className="daily-date-heading"><button className="outline-button" aria-label="Ngày trước" onClick={() => shiftCalendar(-1)}><ChevronLeft size={16}/></button><b>{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(selectedDate)}</b><button className="outline-button" aria-label="Ngày sau" onClick={() => shiftCalendar(1)}><ChevronRight size={16}/></button></div>
+                    {rooms.map(roomKey => {
+                      const [studio, room] = roomKey.split("|");
+                      const events = records.filter(record => record.values.studio === studio && record.values.room === room && parseRecordDate(record.values.date || "", selectedDate.getFullYear()) && dateKey(parseRecordDate(record.values.date || "", selectedDate.getFullYear())!) === dateKey(selectedDate));
+                      if (!events.length) return null;
+                      return <article className="daily-room-card" key={roomKey}><div><small>{studio}</small><b>{room}</b></div><div className="daily-room-events">{events.map(event => <button key={event.id} onClick={() => openEdit(event)}><b>{event.values.startTime}–{event.values.endTime}</b><span>{event.values.brand} · {event.values.host || "Chưa gán"}</span><i className={statusClass(event.values.status)}>{event.values.status}</i></button>)}</div></article>;
                     })}
+                    {!getRecordsForDate(selectedDate).length && <div className="empty-state"><CalendarDays size={25}/><b>Không có lịch trong ngày</b><span>Thử chọn ngày khác trên lịch tháng.</span></div>}
                   </div>
                 )}
-                <div className="calendar-legend"><LockKeyhole size={14}/> Lịch import chỉ cho phép sửa host, phòng, trạng thái và ISKEEP. Không thể thêm hoặc xóa.</div>
+                <div className="calendar-legend"><LockKeyhole size={14}/> Lịch xem theo tháng, bố trí phòng theo ngày. Dữ liệu lịch mẫu; kết nối nguồn Google Sheets đang chờ cấp quyền.</div>
               </section>
             ) : module === "backgrounds" ? (
               <section className="data-panel">
@@ -549,22 +601,21 @@ export default function App() {
       </div>
       <nav className="mobile-bottom-nav" aria-label="Điều hướng nhanh">
         {([
+          ["dashboard", "Tổng quan", LayoutDashboard],
           ["schedules", "Lịch", CalendarDays],
           ["backgrounds", "Nền", Package],
-          ["titles", "Title", FileText],
           ["hosts", "Host", Users],
-          ["library", "Thư viện", Library]
+          ["titles", "Title", FileText]
         ] as const).map(([key, label, Icon]) => <button key={key} className={screen === key ? "active" : ""} onClick={() => setScreen(key)}><Icon size={18}/><span>{label}</span></button>)}
       </nav>
 
       {settingsOpen && <div className="popover-backdrop" onClick={() => setSettingsOpen(false)}><section className="settings-popover" onClick={event => event.stopPropagation()}>
         <div className="popover-title"><div><b>Tùy chỉnh giao diện</b><small>Cá nhân hóa không gian làm việc</small></div><button className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button></div>
-        <label className="setting-label">Chế độ hiển thị</label><div className="theme-options">
-          {([{ value: "light", label: "Sáng", Icon: Sun }, { value: "dark", label: "Tối", Icon: Moon }, { value: "system", label: "Theo thiết bị", Icon: Monitor }] as const).map(item => <button className={theme === item.value ? "selected" : ""} key={item.value} onClick={() => setTheme(item.value)}><item.Icon size={17}/>{item.label}</button>)}
+        <label className="setting-label">Chế độ hiển thị</label><div className="theme-options theme-options-two">
+          {([{ value: "light", label: "Sáng", Icon: Sun }, { value: "dark", label: "Tối", Icon: Moon }] as const).map(item => <button className={theme === item.value ? "selected" : ""} key={item.value} onClick={() => setTheme(item.value)}><item.Icon size={19}/>{item.label}</button>)}
         </div>
-        <label className="setting-label">Màu nhấn</label>
-        <div className="accent-options">{(["phoenix", "ember", "blue", "green"] as Accent[]).map(color => <button key={color} className={`accent-swatch ${color} ${accent === color ? "selected" : ""}`} onClick={() => setAccent(color)} aria-label={color} title={color === "phoenix" ? "Phoenix đỏ" : color === "ember" ? "Hổ phách" : color === "blue" ? "Xanh" : "Lục"}>{accent === color && <Check size={15}/>}</button>)}</div>
-        <p className="settings-hint">Lựa chọn được lưu trên trình duyệt này. Vai trò và dữ liệu hiện chỉ là mô phỏng giao diện.</p>
+        <div className="theme-preview-note"><span className="theme-preview-burgundy"/><span className="theme-preview-ice"/><div><b>Burgundy × Ice Blue</b><small>Bảng màu Force Shadow</small></div></div>
+        <p className="settings-hint">Lựa chọn sáng/tối được lưu trên trình duyệt. Vai trò và dữ liệu hiện chỉ là mô phỏng.</p>
       </section></div>}
 
       {formOpen && <div className="form-overlay"><form className="record-form" onSubmit={handleSave}>

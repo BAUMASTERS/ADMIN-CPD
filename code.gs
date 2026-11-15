@@ -4,6 +4,10 @@ const ADMIN_SESSION_SECONDS = 21600;
 const ADMIN_LOGIN_LIMIT = 5;
 const ADMIN_LOGIN_WINDOW_SECONDS = 900;
 const ADMIN_USERS_SHEET_NAME = 'ADMIN_USERS';
+const ADMIN_UPCOMING_SPREADSHEET_ID = '1ja9bF2VI05hPMz_wDiDK6fnbR4nc605UP3IXz57bB3c';
+const ADMIN_UPCOMING_SHEET_NAME = 'LỊCH SẮP TỚI';
+const ADMIN_UPCOMING_MAX_ROWS = 500;
+const ADMIN_UPCOMING_MAX_COLUMNS = 400;
 const ADMIN_SCHEDULE_COLUMNS = {
   platform: 0,
   brand: 1,
@@ -215,6 +219,52 @@ function adminListRecords(token, section, hostGroup, division) {
   }
 
   throw new Error('Loại dữ liệu không được hỗ trợ.');
+}
+
+function adminGetUpcomingTrackingSnapshot(token) {
+  requireAdminAccess_(token);
+  const spreadsheet = SpreadsheetApp.openById(ADMIN_UPCOMING_SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(ADMIN_UPCOMING_SHEET_NAME);
+  if (!sheet) {
+    throw new Error('Không tìm thấy sheet "' + ADMIN_UPCOMING_SHEET_NAME + '".');
+  }
+
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (!lastRow || !lastColumn) {
+    return {
+      spreadsheetId: ADMIN_UPCOMING_SPREADSHEET_ID,
+      sheetName: ADMIN_UPCOMING_SHEET_NAME,
+      rowCount: 0,
+      columnCount: 0,
+      values: [],
+      backgrounds: [],
+      mergedRanges: []
+    };
+  }
+  if (lastRow > ADMIN_UPCOMING_MAX_ROWS || lastColumn > ADMIN_UPCOMING_MAX_COLUMNS) {
+    throw new Error(
+      'Sheet "' + ADMIN_UPCOMING_SHEET_NAME + '" vượt giới hạn đọc an toàn (' +
+      ADMIN_UPCOMING_MAX_ROWS + ' hàng × ' + ADMIN_UPCOMING_MAX_COLUMNS + ' cột).'
+    );
+  }
+
+  const dataRange = sheet.getRange(1, 1, lastRow, lastColumn);
+  return {
+    spreadsheetId: ADMIN_UPCOMING_SPREADSHEET_ID,
+    sheetName: ADMIN_UPCOMING_SHEET_NAME,
+    rowCount: lastRow,
+    columnCount: lastColumn,
+    values: dataRange.getDisplayValues(),
+    backgrounds: dataRange.getBackgrounds(),
+    mergedRanges: dataRange.getMergedRanges().map(range => ({
+      a1: range.getA1Notation(),
+      row: range.getRow(),
+      column: range.getColumn(),
+      rows: range.getNumRows(),
+      columns: range.getNumColumns()
+    }))
+  };
 }
 
 function adminSaveRecord(token, section, hostGroup, record, division) {
