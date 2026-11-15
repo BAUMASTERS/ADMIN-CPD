@@ -2,6 +2,13 @@
 
 Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backend. Frontend hiện dùng mock data để hoàn thiện và thử luồng giao diện, chưa kết nối backend. Thao tác thêm/sửa/xóa trong bản demo chỉ có hiệu lực trong phiên trình duyệt hiện tại.
 
+## Deploy frontend lên Vercel
+
+- Đặt Root Directory là `ADMIN-CPD` nếu repository chứa dự án trong thư mục con.
+- Build command: `npm run build`; Output Directory: `dist`.
+- `node_modules` và thư mục build được loại khỏi source/deployment; để Vercel cài dependencies trên Linux thay vì dùng binary đã tạo trên Windows.
+- Nếu deploy cũ vẫn báo `tsc: Permission denied`, redeploy một lần với **Clear build cache**.
+
 ## Giao diện quản trị
 
 - Dashboard là màn hình mặc định, gồm tổng quan studio và tracking lịch sắp tới.
