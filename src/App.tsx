@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Command,
   Database, FileText, LockKeyhole, Menu, Moon,
-  MoreHorizontal, Monitor, Package, Pencil, Plus, Search, Settings, Sun, Trash2, Upload,
+  MoreHorizontal, Monitor, Package, Pencil, Plus, Search, Sun, Trash2, Upload,
   Users, X, Check, Bell, Library, Clock3, Image, LayoutDashboard,
   CircleHelp, ExternalLink, ShieldCheck
 } from "lucide-react";
@@ -15,6 +15,10 @@ type CalendarView = "month" | "day";
 type LibraryItem = { id: string; name: string; division: Division; description: string; updated: string };
 type CalendarSource = { id: string; name: string; color: string };
 type AdminAccount = { username: string; role: "admin" | "superadmin"; active: boolean };
+type GanttItem = { record: RecordItem; startHour: number; durationHours: number };
+
+const GANTT_HOURS_PER_DAY = 24;
+const GANTT_DAYS = 7;
 
 const icons = {
   schedules: CalendarDays,
@@ -80,14 +84,25 @@ function formatMonth(date: Date) {
   return new Intl.DateTimeFormat("vi-VN", { month: "long", year: "numeric" }).format(date);
 }
 
+function parseTime(value: string) {
+  const match = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return hour + minute / 60;
+}
+
 export default function App() {
   const [screen, setActiveScreen] = useState<Screen>("dashboard");
   const [division, setDivision] = useState<Division>("CPD");
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [query, setQuery] = useState("");
   const [theme, setTheme] = useState<ThemeMode>(() => localStorage.getItem("cpd-theme") === "light" ? "light" : "dark");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("fs-sidebar-collapsed") === "true");
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [ganttPixelsPerHour, setGanttPixelsPerHour] = useState(() => window.innerWidth <= 760 ? 10 : 14);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RecordItem | undefined>();
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -112,8 +127,8 @@ export default function App() {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountModal, setAccountModal] = useState(false);
   const [accountDraft, setAccountDraft] = useState({ username: "", password: "" });
-  const [studioFilter, setStudioFilter] = useState("Tất cả");
   const [trackingFilter, setTrackingFilter] = useState("Tất cả");
+  const [trackingWeekOffset, setTrackingWeekOffset] = useState(0);
 
   const isDataModule = moduleKeys.includes(screen as ModuleKey);
   const module = (isDataModule ? screen : "schedules") as ModuleKey;
@@ -126,6 +141,16 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("cpd-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("fs-sidebar-collapsed", String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    const updateGanttScale = () => setGanttPixelsPerHour(window.innerWidth <= 760 ? 10 : 14);
+    window.addEventListener("resize", updateGanttScale);
+    return () => window.removeEventListener("resize", updateGanttScale);
+  }, []);
 
   useEffect(() => {
     if (!isDataModule && screen !== "dashboard") return;
@@ -160,10 +185,45 @@ export default function App() {
   const liveCount = records.filter(record => /đang live/i.test(record.values.status || "")).length;
   const offlineCount = records.filter(record => /offline|ngoại tuyến/i.test(record.values.status || "")).length;
   const warningCount = records.filter(record => /warning|cảnh báo|hủy/i.test(record.values.status || "")).length;
-  const studioNames = Array.from(new Set(records.map(record => record.values.studio || "Chưa phân loại")));
-  const studioRecords = studioFilter === "Tất cả" ? records : records.filter(record => record.values.studio === studioFilter);
-  const trackingRecords = studioRecords.filter(record => trackingFilter === "Tất cả" || record.values.type === trackingFilter);
+  const trackingRecords = records.filter(record => trackingFilter === "Tất cả" || (record.values.type || "Lịch mega") === trackingFilter);
   const rooms = Array.from(new Set(records.map(record => `${record.values.studio || "Chưa phân loại"}|${record.values.room || "Chưa xếp phòng"}`)));
+  const trackingWeekStart = new Date();
+  trackingWeekStart.setHours(0, 0, 0, 0);
+  trackingWeekStart.setDate(trackingWeekStart.getDate() + trackingWeekOffset * GANTT_DAYS);
+  const trackingDates = Array.from({ length: GANTT_DAYS }, (_, index) => {
+    const date = new Date(trackingWeekStart);
+    date.setDate(date.getDate() + index);
+    return date;
+  });
+  const trackingWeekEnd = trackingDates[trackingDates.length - 1];
+  const ganttSchedule = useMemo(() => {
+    const items: GanttItem[] = [];
+    let unplacedCount = 0;
+    const rangeStart = Date.UTC(trackingWeekStart.getFullYear(), trackingWeekStart.getMonth(), trackingWeekStart.getDate());
+    const rangeEnd = rangeStart + GANTT_DAYS * 24 * 60 * 60 * 1000;
+
+    trackingRecords.forEach(record => {
+      const date = parseRecordDate(record.values.date || "", trackingWeekStart.getFullYear());
+      if (!date) return;
+      const recordDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+      if (recordDay < rangeStart || recordDay >= rangeEnd) return;
+      const start = parseTime(record.values.startTime || "");
+      const end = parseTime(record.values.endTime || "");
+      if (start === null || end === null) {
+        unplacedCount += 1;
+        return;
+      }
+      const dayOffset = (recordDay - rangeStart) / (24 * 60 * 60 * 1000);
+      const startHour = dayOffset * GANTT_HOURS_PER_DAY + start;
+      const endHour = dayOffset * GANTT_HOURS_PER_DAY + end + (end <= start ? GANTT_HOURS_PER_DAY : 0);
+      const visibleStart = Math.max(0, startHour);
+      const visibleEnd = Math.min(GANTT_DAYS * GANTT_HOURS_PER_DAY, endHour);
+      if (visibleEnd > visibleStart) items.push({ record, startHour: visibleStart, durationHours: visibleEnd - visibleStart });
+    });
+
+    items.sort((a, b) => a.startHour - b.startHour);
+    return { items, unplacedCount };
+  }, [trackingRecords, trackingWeekStart.getTime()]);
   const screenTitle = isDataModule ? config.title
     : screen === "dashboard" ? "Tổng quan" : screen === "library" ? "Thư viện" : screen === "admin-users" ? "Tài khoản admin"
       : screen === "livestream-checking" ? "Livestream Checking" : "Warning Checking";
@@ -332,7 +392,7 @@ export default function App() {
   };
 
   const navButton = (key: Screen, label: string, Icon: typeof CalendarDays, badge?: string) => (
-    <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)}>
+    <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)} title={sidebarCollapsed ? label : undefined}>
       <Icon size={18}/><span>{label}</span>{badge && <small className="nav-badge">{badge}</small>}
       {screen === key && <span className="nav-indicator"/>}
     </button>
@@ -351,14 +411,21 @@ export default function App() {
           <label className="division-picker"><span>Division</span><select value={division} onChange={event => setDivision(event.target.value as Division)}><option value="CPD">CPD</option><option value="P&G">P&amp;G</option></select><ChevronDown size={14}/></label>
           <button className="icon-button" aria-label="Thông báo"><Bell size={19}/></button>
           {isDataModule && canCreate && <button className="create-button" onClick={openCreate}><Plus size={17}/><span>Tạo {config.singular}</span></button>}
-          <button className="icon-button settings-trigger" onClick={() => setSettingsOpen(true)} aria-label="Cài đặt giao diện"><Settings size={19}/></button>
+          <button className="icon-button theme-toggle" onClick={() => setTheme(current => current === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Chuyển sang giao diện sáng" : "Chuyển sang giao diện tối"} title={theme === "dark" ? "Giao diện sáng" : "Giao diện tối"}>{theme === "dark" ? <Sun size={19}/> : <Moon size={19}/>}</button>
         </div>
       </header>
 
       <div className="workspace">
-        <aside className={`sidebar ${mobileMenu ? "sidebar-open" : ""}`}>
-          <div className="workspace-caption">FORCE SHADOW</div>
-          <label className="workspace-switch"><span className="workspace-avatar">{division === "CPD" ? "C" : "P"}</span><span className="sidebar-copy"><b>{division} MASTER</b><small>Division đang làm việc</small></span><ChevronDown size={16}/></label>
+        <aside className={`sidebar ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileMenu ? "sidebar-open" : ""}`}>
+          <div className="sidebar-header"><span className="workspace-caption">FORCE SHADOW</span><button className="sidebar-toggle desktop-sidebar-toggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={sidebarCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"} title={sidebarCollapsed ? "Mở rộng" : "Thu gọn"}>{sidebarCollapsed ? <ChevronRight size={17}/> : <ChevronLeft size={17}/>}</button></div>
+          <div className="workspace-selector">
+            <button className="workspace-switch" aria-expanded={workspaceOpen} aria-haspopup="true" aria-label={`Division đang làm việc: ${division} MASTER`} onClick={() => setWorkspaceOpen(current => !current)}>
+              <span className="workspace-avatar">{division === "CPD" ? "C" : "P"}</span><span className="sidebar-copy"><b>{division} MASTER</b><small>Division đang làm việc</small></span><ChevronDown size={16}/>
+            </button>
+            {workspaceOpen && <div className="workspace-menu" role="group" aria-label="Chọn division">
+              {(["CPD", "P&G"] as Division[]).map(option => <button key={option} className={division === option ? "selected" : ""} onClick={() => { setDivision(option); setWorkspaceOpen(false); }}><span className="workspace-avatar">{option === "CPD" ? "C" : "P"}</span><span><b>{option} MASTER</b><small>{division === option ? "Đang làm việc" : "Chuyển division"}</small></span><Check size={15}/></button>)}
+            </div>}
+          </div>
           <div className="nav-caption">KHÔNG GIAN LÀM VIỆC</div>
           <nav className="side-nav">{navButton("dashboard", "Tổng quan", LayoutDashboard)}</nav>
           <div className="nav-caption secondary-nav-caption">QUẢN LÝ DỮ LIỆU</div>
@@ -412,47 +479,54 @@ export default function App() {
                   <span className="overview-icon"><item.icon size={22}/></span><span className="overview-copy"><b>{item.label}</b><strong>{item.value}</strong><small>{item.detail}</small></span>
                 </article>)}
               </div>
-              <div className="studio-tracking-heading"><div><span className="section-kicker">STUDIO STATUS</span><h2>Tình trạng theo Studio</h2></div><label className="studio-search"><Search size={16}/><input aria-label="Tìm studio" placeholder="Tìm studio..." value={query} onChange={event => setQuery(event.target.value)}/></label></div>
-              <div className="studio-tracking-layout">
-                <div className="studio-cards">
-                  {studioNames.filter(name => !query || name.toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi"))).map(name => {
-                    const studioItems = records.filter(record => (record.values.studio || "Chưa phân loại") === name);
-                    const live = studioItems.filter(record => /đang live/i.test(record.values.status || "")).length;
-                    const notLive = studioItems.length - live;
-                    return <button className={`studio-card ${studioFilter === name ? "studio-selected" : ""}`} key={name} onClick={() => setStudioFilter(studioFilter === name ? "Tất cả" : name)}>
-                      <span className="studio-card-head"><span className="studio-mark"><LayoutDashboard size={20}/></span><span><b>{name}</b><small>{new Set(studioItems.map(record => record.values.room)).size} phòng vật lý</small></span></span>
-                      <span className="studio-stats"><span><b>{live}</b><small><i className="dot-live"/>Đang live</small></span><span><b>{notLive}</b><small><i className="dot-idle"/>Không live</small></span></span>
-                    </button>;
-                  })}
-                  {!studioNames.length && <div className="studio-empty">Đang tải dữ liệu studio...</div>}
-                </div>
-                <div className="tracking-controls">
-                  <div className="tracking-filter-grid">{["Tất cả", "Lịch mega", "Booking host", "Lịch campaign"].map(filter => <button key={filter} className={trackingFilter === filter ? "selected" : ""} onClick={() => setTrackingFilter(filter)}>{filter === "Tất cả" ? <LayoutDashboard size={16}/> : filter === "Lịch mega" ? <Monitor size={16}/> : filter === "Booking host" ? <CalendarDays size={16}/> : <FileText size={16}/>}<span>{filter}</span></button>)}</div>
-                </div>
-              </div>
             </section>
             <section className="tracking-section">
-              <div className="tracking-section-heading"><div><span className="section-kicker">UPCOMING TRACKING</span><h2>Tracking lịch sắp tới</h2><p>Nguồn dự kiến: sheet “LỊCH SẮP TỚI” · dữ liệu mẫu cho tới khi kết nối backend.</p></div><button className="outline-button" onClick={() => setScreen("schedules")}><CalendarDays size={16}/> Lịch tháng</button></div>
-              <div className="tracking-table-wrap"><table className="tracking-table">
-                <thead><tr><th>Studio / phòng</th><th>Tình trạng</th><th>Nội dung</th><th>Host</th><th>Bắt đầu</th><th>Kết thúc</th></tr></thead>
-                <tbody>{trackingRecords.map(record => <tr key={record.id}>
-                  <td><b>{record.values.studio || "—"}</b><small>{record.values.room || "Chưa xếp phòng"}</small></td>
-                  <td><span className={statusClass(record.values.status)}>{record.values.status || "Chưa cập nhật"}</span></td>
-                  <td><b>{record.values.brand || "—"}</b><small>{record.values.type} · {record.values.platform}</small></td>
-                  <td>{record.values.host || "Chưa gán"}</td>
-                  <td>{record.values.date} · {record.values.startTime}</td>
-                  <td>{record.values.endTime}</td>
-                </tr>)}</tbody>
-              </table>{!trackingRecords.length && <div className="empty-state"><Database size={25}/><b>Không có lịch phù hợp</b><span>Thay đổi bộ lọc Studio hoặc loại lịch.</span></div>}</div>
-              <div className="tracking-mobile-list">
-                {trackingRecords.map(record => <article className="tracking-mobile-card" key={record.id}>
-                  <div className="tracking-mobile-card-head"><span><b>{record.values.brand || "—"}</b><small>{record.values.studio || "Chưa phân loại"} · {record.values.room || "Chưa xếp phòng"}</small></span><span className={statusClass(record.values.status)}>{record.values.status || "Chưa cập nhật"}</span></div>
-                  <p>{record.values.type} · {record.values.platform}</p>
-                  <div className="tracking-mobile-meta"><span>{record.values.host || "Chưa gán"}</span><span>{record.values.date} · {record.values.startTime}–{record.values.endTime}</span></div>
-                </article>)}
-                {!trackingRecords.length && <div className="empty-state"><Database size={25}/><b>Không có lịch phù hợp</b><span>Thay đổi bộ lọc Studio hoặc loại lịch.</span></div>}
+              <div className="tracking-section-heading">
+                <div><span className="section-kicker">UPCOMING TRACKING</span><h2>Tracking lịch sắp tới</h2><p>Nguồn dự kiến: sheet “LỊCH SẮP TỚI” · dữ liệu mẫu cho tới khi kết nối backend.</p></div>
+                <div className="gantt-heading-actions">
+                  <div className="gantt-date-control"><button className="outline-button" aria-label="Tuần trước" onClick={() => setTrackingWeekOffset(offset => offset - 1)}><ChevronLeft size={16}/></button><span>{new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short" }).format(trackingWeekStart)} – {new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short", year: "numeric" }).format(trackingWeekEnd)}</span><button className="outline-button" aria-label="Tuần sau" onClick={() => setTrackingWeekOffset(offset => offset + 1)}><ChevronRight size={16}/></button></div>
+                  <button className="outline-button" onClick={() => setScreen("schedules")}><CalendarDays size={16}/> Lịch tháng</button>
+                </div>
               </div>
-              <div className="tracking-footnote"><LockKeyhole size={14}/> Dữ liệu lịch đang hiển thị bằng dữ liệu mẫu, chưa đọc từ Google Sheets.</div>
+              <div className="gantt-toolbar">
+                <div className="tracking-filter-grid">{["Tất cả", "Lịch mega", "Booking host", "Lịch campaign"].map(filter => <button key={filter} className={trackingFilter === filter ? "selected" : ""} onClick={() => setTrackingFilter(filter)}>{filter === "Tất cả" ? <LayoutDashboard size={15}/> : filter === "Lịch mega" ? <Monitor size={15}/> : filter === "Booking host" ? <CalendarDays size={15}/> : <FileText size={15}/>}<span>{filter}</span></button>)}</div>
+                <span className="gantt-total">{ganttSchedule.items.length} phiên live</span>
+              </div>
+              <div className="gantt-scroll" role="region" aria-label="Biểu đồ Gantt lịch livestream" tabIndex={0}>
+                <div className="gantt-board" style={{
+                  "--gantt-hour-width": `${ganttPixelsPerHour}px`,
+                  "--gantt-six-hour-width": `${ganttPixelsPerHour * 6}px`,
+                  "--gantt-day-width": `${ganttPixelsPerHour * GANTT_HOURS_PER_DAY}px`
+                } as CSSProperties}>
+                  <div className="gantt-header-row">
+                    <div className="gantt-task-heading">PHIÊN LIVE / STUDIO</div>
+                    <div className="gantt-axis" style={{ width: `${GANTT_DAYS * GANTT_HOURS_PER_DAY * ganttPixelsPerHour}px` }}>
+                      {trackingDates.map(date => <div className="gantt-day-heading" key={dateKey(date)}>
+                        <b>{new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "numeric", month: "short" }).format(date)}</b>
+                        <div className="gantt-hour-labels">{[0, 6, 12, 18].map(hour => <span key={hour} style={{ left: `${hour * ganttPixelsPerHour}px` }}>{String(hour).padStart(2, "0")}:00</span>)}</div>
+                      </div>)}
+                    </div>
+                  </div>
+                  {ganttSchedule.items.map(({ record, startHour, durationHours }) => {
+                    const type = record.values.type || "Lịch mega";
+                    const barType = /booking/i.test(type) ? "booking" : /campaign/i.test(type) ? "campaign" : "mega";
+                    const date = parseRecordDate(record.values.date || "", trackingWeekStart.getFullYear());
+                    return <div className="gantt-row" key={record.id}>
+                      <div className="gantt-task-label">
+                        <b>{record.values.brand || "Chưa có thương hiệu"}</b>
+                        <span>{record.values.studio || "Chưa phân loại"} · {record.values.room || "Chưa xếp phòng"}</span>
+                        <small>{record.values.host || "Chưa gán host"} · {record.values.startTime}–{record.values.endTime}</small>
+                      </div>
+                      <div className="gantt-track" style={{ width: `${GANTT_DAYS * GANTT_HOURS_PER_DAY * ganttPixelsPerHour}px` }}>
+                        <button className={`gantt-bar gantt-bar-${barType} ${/đang live/i.test(record.values.status || "") ? "gantt-bar-live" : ""}`} style={{ left: `${startHour * ganttPixelsPerHour}px`, width: `${durationHours * ganttPixelsPerHour}px` }} title={`${record.values.brand} · ${date ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "long" }).format(date) : record.values.date} · ${record.values.startTime}–${record.values.endTime}`} aria-label={`${record.values.brand}, ${record.values.startTime} đến ${record.values.endTime}`} onClick={() => openEdit(record)}><span/></button>
+                      </div>
+                    </div>;
+                  })}
+                  {!ganttSchedule.items.length && <div className="gantt-empty"><CalendarDays size={19}/><span>Không có lịch trong khoảng thời gian này.</span></div>}
+                </div>
+              </div>
+              {ganttSchedule.unplacedCount > 0 && <div className="gantt-unplaced"><CircleHelp size={14}/>{ganttSchedule.unplacedCount} lịch trong tuần thiếu ngày hoặc khung giờ hợp lệ nên chưa thể hiển thị trên biểu đồ.</div>}
+              <div className="tracking-footnote"><LockKeyhole size={14}/> Mỗi thanh thể hiện thời lượng live trên trục thời gian; chọn thanh để xem/sửa thông tin lịch. Dữ liệu mẫu, chưa đọc từ Google Sheets.</div>
             </section>
           </div>}
 
@@ -608,15 +682,6 @@ export default function App() {
           ["titles", "Title", FileText]
         ] as const).map(([key, label, Icon]) => <button key={key} className={screen === key ? "active" : ""} onClick={() => setScreen(key)}><Icon size={18}/><span>{label}</span></button>)}
       </nav>
-
-      {settingsOpen && <div className="popover-backdrop" onClick={() => setSettingsOpen(false)}><section className="settings-popover" onClick={event => event.stopPropagation()}>
-        <div className="popover-title"><div><b>Tùy chỉnh giao diện</b><small>Cá nhân hóa không gian làm việc</small></div><button className="icon-button" onClick={() => setSettingsOpen(false)}><X size={17}/></button></div>
-        <label className="setting-label">Chế độ hiển thị</label><div className="theme-options theme-options-two">
-          {([{ value: "light", label: "Sáng", Icon: Sun }, { value: "dark", label: "Tối", Icon: Moon }] as const).map(item => <button className={theme === item.value ? "selected" : ""} key={item.value} onClick={() => setTheme(item.value)}><item.Icon size={19}/>{item.label}</button>)}
-        </div>
-        <div className="theme-preview-note"><span className="theme-preview-burgundy"/><span className="theme-preview-ice"/><div><b>Burgundy × Ice Blue</b><small>Bảng màu Force Shadow</small></div></div>
-        <p className="settings-hint">Lựa chọn sáng/tối được lưu trên trình duyệt. Vai trò và dữ liệu hiện chỉ là mô phỏng.</p>
-      </section></div>}
 
       {formOpen && <div className="form-overlay"><form className="record-form" onSubmit={handleSave}>
         <div className="form-header"><div><span className="eyebrow">{division} · QUẢN LÝ DỮ LIỆU</span><h2>{editing ? "Cập nhật bản ghi" : `Tạo ${config.singular} mới`}</h2><p>{module === "schedules" ? "Chỉ được cập nhật thông tin vận hành của lịch đã import." : module === "backgrounds" ? "Chỉ cập nhật tài nguyên của record brand đã có." : module === "titles" ? "Chỉ sửa title và các tùy chọn ghép." : "Nhập thông tin mã host."}</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)} aria-label="Đóng"><X/></button></div>

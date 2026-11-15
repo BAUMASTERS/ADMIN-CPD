@@ -12,9 +12,10 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 ## Giao diện quản trị
 
 - Dashboard là màn hình mặc định, gồm tổng quan studio và tracking lịch sắp tới.
-- Bản desktop dùng nền tối, sidebar thu gọn và mở rộng khi rê chuột/focus; bảng màu burgundy và ice blue.
-- Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và danh sách tracking dạng thẻ.
-- Chỉ có chế độ Sáng/Tối.
+- Bản desktop có sidebar bấm để thu gọn/mở rộng; division CPD/P&G chọn được ngay từ workspace switcher.
+- Dashboard có biểu đồ Gantt theo giờ cho các phiên live trong 7 ngày; có thể chuyển tuần và lọc loại lịch.
+- Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và biểu đồ Gantt cuộn ngang.
+- Chỉ có chế độ Sáng/Tối, chuyển bằng một nút; màu nhấn ice blue ở sáng và burgundy ở tối.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
 - Lịch live có chế độ xem theo tháng hoặc ngày (không có chế độ tuần); danh sách lịch xem có thể thêm/bỏ.
 - Background hiển thị theo hồ sơ brand; form chọn ảnh chỉ xem trước tại trình duyệt, chưa upload lên Drive.
