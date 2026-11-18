@@ -469,6 +469,25 @@ body{background:var(--bg)}
   .gantt-date-control>span{min-width:98px;font-size:8px}
 }
 
+.auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 0,color-mix(in srgb,var(--accent) 15%,transparent),transparent 55%),var(--bg)}
+.auth-card{width:min(410px,100%);display:grid;gap:14px;padding:27px;border:1px solid var(--border);border-radius:18px;background:var(--surface);box-shadow:var(--shadow)}
+.auth-brand{display:flex;align-items:center;gap:10px;margin-bottom:8px;font-size:13px;font-weight:800;letter-spacing:.7px}
+.auth-brand .brand-symbol{flex:none}
+.auth-brand small{display:block;margin-top:3px;color:var(--muted);font-size:8px;letter-spacing:1px}
+.auth-connection{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:9px}
+.auth-connection i{width:7px;height:7px;flex:none;border-radius:50%;background:var(--amber)}
+.auth-connection.connected i{background:var(--green)}
+.auth-connection.disconnected{color:var(--red)}
+.auth-connection.disconnected i{background:var(--red)}
+.auth-card h1{margin:2px 0 0;font-size:22px}
+.auth-card>p{margin:0 0 4px;color:var(--muted);font-size:11px}
+.auth-card .form-field input{min-height:44px;font-size:14px}
+.auth-submit{width:100%;margin-top:3px;border:0;background:var(--accent-strong);color:#fff}
+.auth-error{margin:0;padding:10px;border:1px solid color-mix(in srgb,var(--red) 40%,transparent);border-radius:8px;background:color-mix(in srgb,var(--red) 10%,transparent);color:var(--red);font-size:10px}
+.auth-security{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:9px}
+.backend-connection .connection-dot{background:var(--green)}
+@media(max-width:760px){.auth-card{padding:21px}}
+
 .division-picker{height:39px;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--border);border-radius:10px;color:var(--muted);font-size:10px;position:relative}
 .division-picker select{border:0;outline:0;appearance:none;background:transparent;color:var(--text);font-size:12px;font-weight:700;padding-right:14px;cursor:pointer}
 .division-picker>svg{position:absolute;right:9px;pointer-events:none}

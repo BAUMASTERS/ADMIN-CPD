@@ -1,6 +1,6 @@
 # Force Shadow · Operations
 
-Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backend. Frontend hiện dùng mock data để hoàn thiện và thử luồng giao diện, chưa kết nối backend. Thao tác thêm/sửa/xóa trong bản demo chỉ có hiệu lực trong phiên trình duyệt hiện tại.
+Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backend. Khi chưa bật cấu hình API, frontend dùng mock data; khi bật, đăng nhập, đọc và sửa dữ liệu sẽ đi qua Vercel API proxy tới Apps Script.
 
 ## Deploy frontend lên Vercel
 
@@ -8,6 +8,8 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Build command: `npm run build`; Output Directory: `dist`.
 - `node_modules` và thư mục build được loại khỏi source/deployment; để Vercel cài dependencies trên Linux thay vì dùng binary đã tạo trên Windows.
 - Nếu deploy cũ vẫn báo `tsc: Permission denied`, redeploy một lần với **Clear build cache**.
+- Thêm Environment Variables: `VITE_API_BASE_URL=/api/apps-script` và `APPS_SCRIPT_WEB_APP_URL=https://script.google.com/macros/s/<deployment-id>/exec`.
+- Sau khi sửa `code.gs`, tạo deployment Apps Script kiểu **Web app**, chạy dưới tài khoản có quyền với spreadsheet, rồi cập nhật URL deployment trong Vercel. Proxy ngoài Google không thể gửi Google session cookie; deployment cần cho phép truy cập từ Vercel (thường là **Anyone**, nếu chính sách Workspace cho phép). Các thao tác dữ liệu vẫn bắt buộc đăng nhập admin riêng của backend.
 
 ## Giao diện quản trị
 
@@ -25,9 +27,9 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Trang tài khoản admin có tạo/khóa tài khoản mẫu và chỉ hiển thị thao tác cho role Superadmin mô phỏng.
 - Livestream Checking và Warning Checking được hiển thị là tính năng sắp phát triển.
 
-Mọi nhãn “demo” hoặc “mô phỏng” đều có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
+Khi Vercel chưa cấu hình `VITE_API_BASE_URL`, các nhãn “demo” hoặc “mô phỏng” có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
 
-Tracking được thiết kế để dùng dữ liệu từ spreadsheet `1ja9bF2VI05hPMz_wDiDK6fnbR4nc605UP3IXz57bB3c`, sheet `LỊCH SẮP TỚI`. Frontend hiện chưa kết nối API đọc dữ liệu này, vì vậy dashboard vẫn dùng dữ liệu mẫu.
+Tracking được thiết kế để dùng dữ liệu từ spreadsheet `1ja9bF2VI05hPMz_wDiDK6fnbR4nc605UP3IXz57bB3c`, sheet `LỊCH SẮP TỚI`. Bản backend hiện có snapshot reader cho sheet đó; adapter dashboard chưa chuẩn hóa snapshot thành các phiên Gantt nên tracking vẫn lấy lịch từ API section `schedules`.
 
 ## Apps Script
 
@@ -42,7 +44,7 @@ Trong **Apps Script > Project Settings > Script Properties**, cấu hình:
 | `ADMIN_SPREADSHEET_ID_CPD` | Spreadsheet ID của CPD; nếu bỏ trống sẽ dùng ID mặc định trong `code.gs`. |
 | `ADMIN_SPREADSHEET_ID_PG` | Spreadsheet ID của P&G; bắt buộc để chọn division P&G. |
 
-Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. React chưa có transport/API adapter để gọi các hàm này; cần hoàn tất phương thức kết nối và deployment trước khi dùng dữ liệu thật. Không có giao diện admin được phục vụ từ Apps Script. Bootstrap superadmin cần được gọi qua một trusted caller.
+Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. `doPost` cung cấp JSON actions có allowlist; `doGet` là health check. Frontend gọi `/api/apps-script`; Vercel proxy chuyển tiếp request tới URL deployment được cấu hình trong `APPS_SCRIPT_WEB_APP_URL`, tránh gọi Apps Script trực tiếp từ browser/CORS. Không có giao diện admin được phục vụ từ Apps Script. Bootstrap superadmin cần được gọi qua một trusted caller.
 
 Setup key bị xóa sau khi bootstrap thành công.
 
@@ -59,8 +61,9 @@ Backend dùng PBKDF2-HMAC-SHA256 với salt riêng, giới hạn thử mật kh�
 
 ## Chưa có trong bản giao diện demo
 
-- Transport, đăng nhập và phân quyền thật từ React tới Apps Script; các vai trò/quyền đang mô phỏng.
+- Quản lý tài khoản admin chưa được nối vào màn hình admin-users; màn hình đó vẫn dùng dữ liệu mô phỏng.
 - Upload và quản lý hình trên Google Drive; hiện chỉ chọn tệp và xem trước cục bộ.
-- Lưu thay đổi vào Google Sheets, khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
+- Khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
+- Dashboard chưa dùng snapshot của sheet `LỊCH SẮP TỚI`; vẫn đang tạo Gantt từ dữ liệu lịch trong division.
 - Nghiệp vụ Livestream Checking và Warning Checking.
 - Cần triển khai và kiểm thử với spreadsheet thực tế trước production.

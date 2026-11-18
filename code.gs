@@ -24,6 +24,68 @@ const ADMIN_SCHEDULE_COLUMNS = {
   isKeep: 19
 };
 
+function doGet() {
+  return jsonOutput_({
+    success: true,
+    data: { service: 'Force Shadow Apps Script API', status: 'ready' }
+  });
+}
+
+function doPost(event) {
+  try {
+    const request = JSON.parse(event.postData.contents);
+    if (!request || typeof request.action !== 'string') {
+      throw new Error('Request cần action hợp lệ.');
+    }
+    return jsonOutput_({
+      success: true,
+      data: dispatchApiAction_(request.action, request.payload || {})
+    });
+  } catch (error) {
+    return jsonOutput_({
+      success: false,
+      error: error && error.message ? error.message : String(error)
+    });
+  }
+}
+
+function dispatchApiAction_(action, payload) {
+  switch (action) {
+    case 'adminLogin':
+      return adminLogin(payload.username, payload.password);
+    case 'adminLogout':
+      return adminLogout(payload.token);
+    case 'adminListRecords':
+      return adminListRecords(payload.token, payload.section, payload.hostGroup, payload.division);
+    case 'adminSaveRecord':
+      return adminSaveRecord(payload.token, payload.section, payload.hostGroup, payload.record, payload.division);
+    case 'adminDeleteRecord':
+      return adminDeleteRecord(
+        payload.token,
+        payload.section,
+        payload.hostGroup,
+        payload.rowNumber,
+        payload.version,
+        payload.division
+      );
+    case 'adminListUsers':
+      return adminListUsers(payload.token);
+    case 'adminCreateUser':
+      return adminCreateUser(payload.token, payload.username, payload.password);
+    case 'adminSetUserActive':
+      return adminSetUserActive(payload.token, payload.username, payload.active);
+    case 'adminGetUpcomingTrackingSnapshot':
+      return adminGetUpcomingTrackingSnapshot(payload.token);
+    default:
+      throw new Error('API action không được hỗ trợ.');
+  }
+}
+
+function jsonOutput_(value) {
+  return ContentService.createTextOutput(JSON.stringify(value))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
 function adminBootstrap(setupKey, username, password) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);

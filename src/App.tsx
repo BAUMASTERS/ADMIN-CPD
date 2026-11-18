@@ -7,6 +7,15 @@ import {
   CircleHelp, ExternalLink, ShieldCheck
 } from "lucide-react";
 import { deleteRecord, listRecords, saveRecord } from "./services/records";
+import {
+  checkBackendConnection,
+  clearAdminSession,
+  getAdminSession,
+  isBackendEnabled,
+  loginAdmin,
+  logoutAdmin,
+  type AdminSession
+} from "./services/api";
 import { moduleConfig, moduleKeys, type ModuleKey, type RecordItem, type ThemeMode } from "./types";
 
 type Screen = "dashboard" | ModuleKey | "library" | "admin-users" | "livestream-checking" | "warning-checking";
@@ -103,6 +112,12 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("fs-sidebar-collapsed") === "true");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [ganttPixelsPerHour, setGanttPixelsPerHour] = useState(() => window.innerWidth <= 760 ? 10 : 14);
+  const [adminSession, setAdminSession] = useState<AdminSession | null>(() => getAdminSession());
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginPending, setLoginPending] = useState(false);
+  const [backendStatus, setBackendStatus] = useState(isBackendEnabled ? "checking" : "demo");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<RecordItem | undefined>();
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -135,7 +150,7 @@ export default function App() {
   const config = moduleConfig[module];
   const canCreate = module === "hosts";
   const canDelete = module === "hosts";
-  const canManageLibrary = demoRole === "superadmin";
+  const canManageLibrary = isBackendEnabled ? adminSession?.role === "superadmin" : demoRole === "superadmin";
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -153,13 +168,38 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!isBackendEnabled) return;
+    let active = true;
+    checkBackendConnection()
+      .then(result => {
+        if (!result.success) throw new Error(result.error || "Apps Script chưa sẵn sàng.");
+        if (active) setBackendStatus("connected");
+      })
+      .catch(error => {
+        if (active) setBackendStatus(error instanceof Error ? error.message : "Không thể kết nối Apps Script.");
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     if (!isDataModule && screen !== "dashboard") return;
+    if (isBackendEnabled && !adminSession) return;
     let active = true;
     const dataModule = isDataModule ? module : "schedules";
-    listRecords(dataModule, division, hostGroup).then(result => { if (active) setRecords(result); });
+    listRecords(dataModule, division, hostGroup)
+      .then(result => { if (active) setRecords(result); })
+      .catch(error => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : "Không thể tải dữ liệu.";
+        setToast(message);
+        if (/phiên đăng nhập hết hạn|phiên đăng nhập không hợp lệ/i.test(message)) {
+          clearAdminSession();
+          setAdminSession(null);
+        }
+      });
     setQuery("");
     return () => { active = false; };
-  }, [module, screen, isDataModule, division, hostGroup]);
+  }, [module, screen, isDataModule, division, hostGroup, adminSession]);
 
   useEffect(() => () => {
     if (localImageUrl) URL.revokeObjectURL(localImageUrl);
@@ -232,8 +272,40 @@ export default function App() {
   async function refresh() {
     const dataModule = isDataModule ? module : screen === "dashboard" ? "schedules" : null;
     if (!dataModule) return;
-    setRecords(await listRecords(dataModule, division, hostGroup));
-    setToast("Đã làm mới dữ liệu demo.");
+    try {
+      setRecords(await listRecords(dataModule, division, hostGroup));
+      setToast(isBackendEnabled ? "Đã làm mới dữ liệu từ Apps Script." : "Đã làm mới dữ liệu demo.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không thể tải dữ liệu.");
+    }
+  }
+
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    setLoginPending(true);
+    setLoginError("");
+    try {
+      const session = await loginAdmin(loginUsername, loginPassword);
+      setAdminSession(session);
+      setDemoRole(session.role);
+      setLoginPassword("");
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : "Không thể đăng nhập.");
+    } finally {
+      setLoginPending(false);
+    }
+  }
+
+  async function handleLogout() {
+    try {
+      await logoutAdmin();
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không thể xác nhận đăng xuất với Apps Script.");
+    } finally {
+      clearAdminSession();
+      setAdminSession(null);
+      setRecords([]);
+    }
   }
 
   function openCreate() {
@@ -252,10 +324,10 @@ export default function App() {
     event.preventDefault();
     setSaving(true);
     try {
-      await saveRecord(module, formValues, editing, division);
+      await saveRecord(module, formValues, editing, division, hostGroup);
       setRecords(await listRecords(module, division, hostGroup));
       setFormOpen(false);
-      setToast(editing ? "Đã cập nhật bản ghi trong phiên demo." : "Đã tạo bản ghi trong phiên demo.");
+      setToast(isBackendEnabled ? "Đã lưu dữ liệu lên Google Sheets." : editing ? "Đã cập nhật bản ghi trong phiên demo." : "Đã tạo bản ghi trong phiên demo.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Không thể lưu bản ghi.");
     } finally {
@@ -266,9 +338,9 @@ export default function App() {
   async function handleDelete(record: RecordItem) {
     if (!window.confirm("Bạn có chắc muốn xóa mã host này trong dữ liệu demo?")) return;
     try {
-      await deleteRecord(module, record, division);
+      await deleteRecord(module, record, division, hostGroup);
       setRecords(await listRecords(module, division, hostGroup));
-      setToast("Đã xóa mã host khỏi phiên demo.");
+      setToast(isBackendEnabled ? "Đã xóa mã host khỏi Google Sheets." : "Đã xóa mã host khỏi phiên demo.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Không thể xóa bản ghi.");
     }
@@ -398,6 +470,24 @@ export default function App() {
     </button>
   );
 
+  if (isBackendEnabled && !adminSession) {
+    return (
+      <main className="auth-page">
+        <form className="auth-card" onSubmit={handleLogin}>
+          <div className="auth-brand"><span className="brand-symbol"><b>FS</b></span><span>FORCE SHADOW<small>OPERATIONS WORKSPACE</small></span></div>
+          <span className={`auth-connection ${backendStatus === "connected" ? "connected" : backendStatus === "checking" ? "checking" : "disconnected"}`}><i/>{backendStatus === "connected" ? "Đã kết nối Apps Script" : backendStatus === "checking" ? "Đang kiểm tra kết nối..." : backendStatus === "demo" ? "Chưa bật backend" : backendStatus}</span>
+          <h1>Đăng nhập quản trị</h1>
+          <p>Dùng tài khoản admin đã được cấp trong hệ thống.</p>
+          <label className="form-field"><span>Tên tài khoản</span><input autoComplete="username" required value={loginUsername} onChange={event => setLoginUsername(event.target.value)}/></label>
+          <label className="form-field"><span>Mật khẩu</span><input type="password" autoComplete="current-password" required value={loginPassword} onChange={event => setLoginPassword(event.target.value)}/></label>
+          {loginError && <p className="auth-error" role="alert">{loginError}</p>}
+          <button className="create-button auth-submit" disabled={loginPending}>{loginPending ? "Đang đăng nhập..." : "Đăng nhập"}</button>
+          <span className="auth-security"><LockKeyhole size={13}/> Phiên đăng nhập được xác thực bởi Apps Script.</span>
+        </form>
+      </main>
+    );
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -441,9 +531,9 @@ export default function App() {
           <div className="nav-caption secondary-nav-caption">QUẢN TRỊ</div>
           <nav className="side-nav">{navButton("admin-users", "Tài khoản admin", ShieldCheck)}</nav>
           <div className="sidebar-bottom">
-            <div className="connection-card demo-connection"><span className="connection-dot"/><span className="sidebar-copy"><b>Chế độ giao diện demo</b><small>Dữ liệu chỉ lưu trong phiên</small></span></div>
-            <button className="profile-button" onClick={() => setDemoRole(current => current === "admin" ? "superadmin" : "admin")} title="Chuyển vai trò mô phỏng">
-              <span className="profile-avatar">AD</span><span className="sidebar-copy"><b>Admin CPD</b><small>{demoRole === "superadmin" ? "Superadmin · mô phỏng" : "Admin · mô phỏng"}</small></span>
+            <div className={`connection-card ${isBackendEnabled ? "backend-connection" : "demo-connection"}`}><span className="connection-dot"/><span className="sidebar-copy"><b>{isBackendEnabled ? "Đã kết nối Apps Script" : "Chế độ giao diện demo"}</b><small>{isBackendEnabled ? "Dữ liệu Google Sheets" : "Dữ liệu chỉ lưu trong phiên"}</small></span></div>
+            <button className="profile-button" onClick={() => isBackendEnabled ? void handleLogout() : setDemoRole(current => current === "admin" ? "superadmin" : "admin")} title={isBackendEnabled ? "Đăng xuất" : "Chuyển vai trò mô phỏng"}>
+              <span className="profile-avatar">{isBackendEnabled ? (adminSession?.username.slice(0, 2).toUpperCase() || "AD") : "AD"}</span><span className="sidebar-copy"><b>{isBackendEnabled ? adminSession?.username : "Admin CPD"}</b><small>{isBackendEnabled ? `${adminSession?.role} · Đăng xuất` : demoRole === "superadmin" ? "Superadmin · mô phỏng" : "Admin · mô phỏng"}</small></span>
               <MoreHorizontal size={18}/>
             </button>
           </div>
@@ -670,7 +760,7 @@ export default function App() {
             </> : <div className="permission-denied"><LockKeyhole size={25}/><h2>Không đủ quyền truy cập</h2><p>Chỉ Superadmin mới được xem và quản lý tài khoản admin.</p><span>Dùng nút hồ sơ ở sidebar để chuyển vai trò demo.</span></div>}
           </section>}
 
-          <div className="page-footnote"><span className="connection-dot"/> Giao diện demo · Chưa kết nối Google Sheets hoặc Google Drive</div>
+          <div className="page-footnote"><span className="connection-dot"/> {isBackendEnabled ? "Kết nối Apps Script · dữ liệu lưu trực tiếp trên Google Sheets" : "Giao diện demo · Chưa kết nối Google Sheets hoặc Google Drive"}</div>
         </main>
       </div>
       <nav className="mobile-bottom-nav" aria-label="Điều hướng nhanh">

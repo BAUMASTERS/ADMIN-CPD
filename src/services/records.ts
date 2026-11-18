@@ -1,7 +1,12 @@
 import type { ModuleKey, RecordItem } from "../types";
+import {
+  deleteBackendRecord,
+  isBackendEnabled,
+  listBackendRecords,
+  saveBackendRecord
+} from "./api";
 
-// Mock adapter cho giai đoạn thiết kế FE.
-// Sau khi API Apps Script/Vercel sẵn sàng, thay implementation tại file này.
+// Keeps the UI usable as a demo until the Apps Script API is enabled.
 function demoDate(offsetDays: number) {
   const date = new Date();
   date.setDate(date.getDate() + offsetDays);
@@ -39,6 +44,7 @@ const dataByDivision: Record<Division, Record<ModuleKey, RecordItem[]>> = {
 const wait = (ms = 180) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function listRecords(module: ModuleKey, division: Division = "CPD", hostGroup = "ECO ID"): Promise<RecordItem[]> {
+  if (isBackendEnabled) return listBackendRecords(module, division, hostGroup);
   await wait();
   const rows = dataByDivision[division][module];
   const selectedRows = module === "hosts"
@@ -49,7 +55,8 @@ export async function listRecords(module: ModuleKey, division: Division = "CPD",
   return structuredClone(selectedRows);
 }
 
-export async function saveRecord(module: ModuleKey, values: Record<string, string>, existing?: RecordItem, division: Division = "CPD"): Promise<void> {
+export async function saveRecord(module: ModuleKey, values: Record<string, string>, existing?: RecordItem, division: Division = "CPD", hostGroup = "ECO ID"): Promise<void> {
+  if (isBackendEnabled) return saveBackendRecord(module, values, existing, division, hostGroup);
   await wait(260);
   if (module !== "hosts" && !existing) {
     throw new Error("Chỉ có thể tạo mới mã host.");
@@ -69,7 +76,8 @@ export async function saveRecord(module: ModuleKey, values: Record<string, strin
   }
 }
 
-export async function deleteRecord(module: ModuleKey, record: RecordItem, division: Division = "CPD"): Promise<void> {
+export async function deleteRecord(module: ModuleKey, record: RecordItem, division: Division = "CPD", hostGroup = "ECO ID"): Promise<void> {
+  if (isBackendEnabled) return deleteBackendRecord(module, record, division, hostGroup);
   await wait(220);
   if (module !== "hosts") {
     throw new Error("Chỉ có thể xóa mã host.");
