@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from
 import {
   Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Command,
   Database, FileText, LockKeyhole, Menu, Moon,
-  MoreHorizontal, Monitor, Package, Pencil, Plus, Search, Sun, Trash2, Upload,
+  MoreHorizontal, Package, Pencil, Plus, Search, Sun, Trash2, Upload,
   Users, X, Check, Bell, Library, Clock3, Image, LayoutDashboard,
   CircleHelp, ExternalLink, ShieldCheck
 } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   clearAdminSession,
   getAdminSession,
   isBackendEnabled,
+  listDashboardTracking,
   loginAdmin,
   logoutAdmin,
   type AdminSession
@@ -24,9 +25,8 @@ type CalendarView = "month" | "day";
 type LibraryItem = { id: string; name: string; division: Division; description: string; updated: string };
 type CalendarSource = { id: string; name: string; color: string };
 type AdminAccount = { username: string; role: "admin" | "superadmin"; active: boolean };
-type GanttItem = { record: RecordItem; startHour: number; durationHours: number };
+type GanttItem = { record: RecordItem; startDay: number; durationDays: number };
 
-const GANTT_HOURS_PER_DAY = 24;
 const GANTT_DAYS = 7;
 
 const icons = {
@@ -93,15 +93,6 @@ function formatMonth(date: Date) {
   return new Intl.DateTimeFormat("vi-VN", { month: "long", year: "numeric" }).format(date);
 }
 
-function parseTime(value: string) {
-  const match = value.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) return null;
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (hour > 23 || minute > 59) return null;
-  return hour + minute / 60;
-}
-
 export default function App() {
   const [screen, setActiveScreen] = useState<Screen>("dashboard");
   const [division, setDivision] = useState<Division>("CPD");
@@ -111,7 +102,10 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("fs-sidebar-collapsed") === "true");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  const [ganttPixelsPerHour, setGanttPixelsPerHour] = useState(() => window.innerWidth <= 760 ? 10 : 14);
+  const [ganttPixelsPerDay, setGanttPixelsPerDay] = useState(() => window.innerWidth <= 760 ? 110 : 150);
+  const [trackingRecords, setTrackingRecords] = useState<RecordItem[]>([]);
+  const [trackingError, setTrackingError] = useState("");
+  const [trackingLoading, setTrackingLoading] = useState(false);
   const [adminSession, setAdminSession] = useState<AdminSession | null>(() => getAdminSession());
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -142,7 +136,6 @@ export default function App() {
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountModal, setAccountModal] = useState(false);
   const [accountDraft, setAccountDraft] = useState({ username: "", password: "" });
-  const [trackingFilter, setTrackingFilter] = useState("Tất cả");
   const [trackingWeekOffset, setTrackingWeekOffset] = useState(0);
 
   const isDataModule = moduleKeys.includes(screen as ModuleKey);
@@ -162,7 +155,7 @@ export default function App() {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
-    const updateGanttScale = () => setGanttPixelsPerHour(window.innerWidth <= 760 ? 10 : 14);
+    const updateGanttScale = () => setGanttPixelsPerDay(window.innerWidth <= 760 ? 110 : 150);
     window.addEventListener("resize", updateGanttScale);
     return () => window.removeEventListener("resize", updateGanttScale);
   }, []);
@@ -182,11 +175,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isDataModule && screen !== "dashboard") return;
+    if (!isDataModule) return;
     if (isBackendEnabled && !adminSession) return;
     let active = true;
-    const dataModule = isDataModule ? module : "schedules";
-    listRecords(dataModule, division, hostGroup)
+    listRecords(module, division, hostGroup)
       .then(result => { if (active) setRecords(result); })
       .catch(error => {
         if (!active) return;
@@ -199,7 +191,37 @@ export default function App() {
       });
     setQuery("");
     return () => { active = false; };
-  }, [module, screen, isDataModule, division, hostGroup, adminSession]);
+  }, [module, isDataModule, division, hostGroup, adminSession]);
+
+  useEffect(() => {
+    if (screen !== "dashboard") return;
+    if (!isBackendEnabled) {
+      setTrackingRecords([]);
+      setTrackingError("Dashboard Gantt cần kết nối Apps Script để đọc sheet TRACKING (UNRELEASE).");
+      return;
+    }
+    if (!adminSession) {
+      setTrackingRecords([]);
+      setTrackingError("Đăng nhập để xem dữ liệu tracking.");
+      return;
+    }
+    let active = true;
+    setTrackingLoading(true);
+    setTrackingError("");
+    listDashboardTracking()
+      .then(result => { if (active) setTrackingRecords(result); })
+      .catch(error => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : "Không thể tải dữ liệu tracking.";
+        setTrackingError(message);
+        if (/phiên đăng nhập hết hạn|phiên đăng nhập không hợp lệ/i.test(message)) {
+          clearAdminSession();
+          setAdminSession(null);
+        }
+      })
+      .finally(() => { if (active) setTrackingLoading(false); });
+    return () => { active = false; };
+  }, [screen, adminSession]);
 
   useEffect(() => () => {
     if (localImageUrl) URL.revokeObjectURL(localImageUrl);
@@ -222,10 +244,6 @@ export default function App() {
   }), [records, sources, visibleSources]);
 
   const activeCount = records.filter(record => /đang hoạt động|online/i.test(record.values.status || "")).length;
-  const liveCount = records.filter(record => /đang live/i.test(record.values.status || "")).length;
-  const offlineCount = records.filter(record => /offline|ngoại tuyến/i.test(record.values.status || "")).length;
-  const warningCount = records.filter(record => /warning|cảnh báo|hủy/i.test(record.values.status || "")).length;
-  const trackingRecords = records.filter(record => trackingFilter === "Tất cả" || (record.values.type || "Lịch mega") === trackingFilter);
   const rooms = Array.from(new Set(records.map(record => `${record.values.studio || "Chưa phân loại"}|${record.values.room || "Chưa xếp phòng"}`)));
   const trackingWeekStart = new Date();
   trackingWeekStart.setHours(0, 0, 0, 0);
@@ -243,25 +261,20 @@ export default function App() {
     const rangeEnd = rangeStart + GANTT_DAYS * 24 * 60 * 60 * 1000;
 
     trackingRecords.forEach(record => {
-      const date = parseRecordDate(record.values.date || "", trackingWeekStart.getFullYear());
-      if (!date) return;
-      const recordDay = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
-      if (recordDay < rangeStart || recordDay >= rangeEnd) return;
-      const start = parseTime(record.values.startTime || "");
-      const end = parseTime(record.values.endTime || "");
-      if (start === null || end === null) {
+      const startDate = parseRecordDate(record.values.startDate || "", trackingWeekStart.getFullYear());
+      const endDate = parseRecordDate(record.values.endDate || "", trackingWeekStart.getFullYear());
+      if (!startDate || !endDate || endDate < startDate) {
         unplacedCount += 1;
         return;
       }
-      const dayOffset = (recordDay - rangeStart) / (24 * 60 * 60 * 1000);
-      const startHour = dayOffset * GANTT_HOURS_PER_DAY + start;
-      const endHour = dayOffset * GANTT_HOURS_PER_DAY + end + (end <= start ? GANTT_HOURS_PER_DAY : 0);
-      const visibleStart = Math.max(0, startHour);
-      const visibleEnd = Math.min(GANTT_DAYS * GANTT_HOURS_PER_DAY, endHour);
-      if (visibleEnd > visibleStart) items.push({ record, startHour: visibleStart, durationHours: visibleEnd - visibleStart });
+      const startDay = (Date.UTC(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()) - rangeStart) / (24 * 60 * 60 * 1000);
+      const endDay = (Date.UTC(endDate.getFullYear(), endDate.getMonth(), endDate.getDate()) - rangeStart) / (24 * 60 * 60 * 1000) + 1;
+      const visibleStart = Math.max(0, startDay);
+      const visibleEnd = Math.min(GANTT_DAYS, endDay);
+      if (visibleEnd > visibleStart) items.push({ record, startDay: visibleStart, durationDays: visibleEnd - visibleStart });
     });
 
-    items.sort((a, b) => a.startHour - b.startHour);
+    items.sort((a, b) => a.startDay - b.startDay);
     return { items, unplacedCount };
   }, [trackingRecords, trackingWeekStart.getTime()]);
   const screenTitle = isDataModule ? config.title
@@ -270,10 +283,24 @@ export default function App() {
   const visibleLibrary = library.filter(item => libraryFilter === "all" || item.division === libraryFilter);
 
   async function refresh() {
-    const dataModule = isDataModule ? module : screen === "dashboard" ? "schedules" : null;
-    if (!dataModule) return;
+    if (screen === "dashboard") {
+      setTrackingLoading(true);
+      setTrackingError("");
+      try {
+        setTrackingRecords(await listDashboardTracking());
+        setToast("Đã làm mới tracking từ Google Sheets.");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Không thể tải dữ liệu tracking.";
+        setTrackingError(message);
+        setToast(message);
+      } finally {
+        setTrackingLoading(false);
+      }
+      return;
+    }
+    if (!isDataModule) return;
     try {
-      setRecords(await listRecords(dataModule, division, hostGroup));
+      setRecords(await listRecords(module, division, hostGroup));
       setToast(isBackendEnabled ? "Đã làm mới dữ liệu từ Apps Script." : "Đã làm mới dữ liệu demo.");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "Không thể tải dữ liệu.");
@@ -496,7 +523,7 @@ export default function App() {
           <span className="brand-symbol"><b>FS</b></span>
           <span>FORCE SHADOW<small>OPERATIONS WORKSPACE</small></span>
         </a>
-        <div className="global-search"><Search size={18}/><input aria-label="Tìm kiếm dữ liệu" placeholder="Tìm kiếm dữ liệu..." value={query} onChange={event => setQuery(event.target.value)}/><kbd>⌘ K</kbd></div>
+        <a className="room-web-link" href="https://baumasters.github.io/WEB-BAU-MASTER/" target="_blank" rel="noreferrer"><ExternalLink size={16}/><span>Web phòng</span></a>
         <div className="top-actions">
           <label className="division-picker"><span>Division</span><select value={division} onChange={event => setDivision(event.target.value as Division)}><option value="CPD">CPD</option><option value="P&G">P&amp;G</option></select><ChevronDown size={14}/></label>
           <button className="icon-button" aria-label="Thông báo"><Bell size={19}/></button>
@@ -541,82 +568,64 @@ export default function App() {
         {mobileMenu && <button className="sidebar-scrim" aria-label="Đóng menu" onClick={() => setMobileMenu(false)}/>}
 
         <main className="main-content">
-          <div className="breadcrumb"><span>FORCE SHADOW</span><span>/</span><span>{division}</span><span>/</span><b>{screenTitle}</b></div>
-          <section className="page-heading">
+          {screen !== "dashboard" && <div className="breadcrumb"><span>FORCE SHADOW</span><span>/</span><span>{division}</span><span>/</span><b>{screenTitle}</b></div>}
+          {screen !== "dashboard" && <section className="page-heading">
             <div>
               <div className="eyebrow"><span/> TRUNG TÂM VẬN HÀNH · {division}</div>
               <h1>{screenTitle}</h1>
-              <p>{isDataModule ? config.description : screen === "dashboard" ? "Tổng quan phòng live và tiến độ theo dõi trong ngày." : screen === "library" ? "Danh mục sheet dùng trong vận hành theo từng division." : "Tính năng đang được chuẩn bị cho giai đoạn tiếp theo."}</p>
+              <p>{isDataModule ? config.description : screen === "library" ? "Danh mục sheet dùng trong vận hành theo từng division." : "Tính năng đang được chuẩn bị cho giai đoạn tiếp theo."}</p>
             </div>
             <div className="heading-actions">
               {isDataModule && <button className="outline-button" onClick={refresh}><Activity size={16}/> Làm mới</button>}
               {isDataModule && canCreate && <button className="create-button desktop-create" onClick={openCreate}><Plus size={17}/> Tạo mã host</button>}
               {screen === "library" && canManageLibrary && <button className="create-button desktop-create" onClick={() => { setEditingLibraryId(undefined); setLibraryDraft({ name: "", description: "" }); setLibraryModal(true); }}><Plus size={17}/> Thêm sheet</button>}
             </div>
-          </section>
+          </section>}
 
           {screen === "dashboard" && <div className="dashboard-content">
-            <section className="overview-section">
-              <div className="section-title-row"><div><span className="section-kicker">LIVE OPERATIONS</span><h2>Tổng quan hệ thống</h2></div><span className="demo-pill"><i/> DEMO DATA</span></div>
-              <div className="overview-cards">
-                {[
-                  { label: "Tổng phòng", value: rooms.length, detail: "Tất cả studio", icon: LayoutDashboard, tone: "ice" },
-                  { label: "Đang online", value: activeCount, detail: `${rooms.length ? Math.round(activeCount / rooms.length * 100) : 0}% tổng số phòng`, icon: Activity, tone: "green" },
-                  { label: "Đang live", value: liveCount, detail: `${rooms.length ? Math.round(liveCount / rooms.length * 100) : 0}% tổng số phòng`, icon: Activity, tone: "red" },
-                  { label: "Đang offline", value: offlineCount, detail: `${rooms.length ? Math.round(offlineCount / rooms.length * 100) : 0}% tổng số phòng`, icon: LayoutDashboard, tone: "neutral" },
-                  { label: "Warning", value: warningCount, detail: "Cần kiểm tra", icon: CircleHelp, tone: "amber" }
-                ].map(item => <article className={`overview-card tone-${item.tone}`} key={item.label}>
-                  <span className="overview-icon"><item.icon size={22}/></span><span className="overview-copy"><b>{item.label}</b><strong>{item.value}</strong><small>{item.detail}</small></span>
-                </article>)}
-              </div>
-            </section>
             <section className="tracking-section">
               <div className="tracking-section-heading">
-                <div><span className="section-kicker">UPCOMING TRACKING</span><h2>Tracking lịch sắp tới</h2><p>Nguồn dự kiến: sheet “LỊCH SẮP TỚI” · dữ liệu mẫu cho tới khi kết nối backend.</p></div>
+                <div><span className="section-kicker">TRACKING</span><h2>Lịch theo dõi</h2><p>Nguồn: “TRACKING (UNRELEASE)” · {division}</p></div>
                 <div className="gantt-heading-actions">
                   <div className="gantt-date-control"><button className="outline-button" aria-label="Tuần trước" onClick={() => setTrackingWeekOffset(offset => offset - 1)}><ChevronLeft size={16}/></button><span>{new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short" }).format(trackingWeekStart)} – {new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short", year: "numeric" }).format(trackingWeekEnd)}</span><button className="outline-button" aria-label="Tuần sau" onClick={() => setTrackingWeekOffset(offset => offset + 1)}><ChevronRight size={16}/></button></div>
-                  <button className="outline-button" onClick={() => setScreen("schedules")}><CalendarDays size={16}/> Lịch tháng</button>
+                  <button className="outline-button" onClick={() => void refresh()} disabled={trackingLoading}><Activity size={16}/> Làm mới</button>
+                  <button className="outline-button" onClick={() => setScreen("schedules")}><CalendarDays size={16}/> Lịch</button>
                 </div>
               </div>
               <div className="gantt-toolbar">
-                <div className="tracking-filter-grid">{["Tất cả", "Lịch mega", "Booking host", "Lịch campaign"].map(filter => <button key={filter} className={trackingFilter === filter ? "selected" : ""} onClick={() => setTrackingFilter(filter)}>{filter === "Tất cả" ? <LayoutDashboard size={15}/> : filter === "Lịch mega" ? <Monitor size={15}/> : filter === "Booking host" ? <CalendarDays size={15}/> : <FileText size={15}/>}<span>{filter}</span></button>)}</div>
-                <span className="gantt-total">{ganttSchedule.items.length} phiên live</span>
+                <span className="gantt-total">{ganttSchedule.items.length} mục tracking</span>
               </div>
-              <div className="gantt-scroll" role="region" aria-label="Biểu đồ Gantt lịch livestream" tabIndex={0}>
+              <div className="gantt-scroll" role="region" aria-label="Biểu đồ Gantt tracking" tabIndex={0}>
                 <div className="gantt-board" style={{
-                  "--gantt-hour-width": `${ganttPixelsPerHour}px`,
-                  "--gantt-six-hour-width": `${ganttPixelsPerHour * 6}px`,
-                  "--gantt-day-width": `${ganttPixelsPerHour * GANTT_HOURS_PER_DAY}px`
+                  "--gantt-day-width": `${ganttPixelsPerDay}px`
                 } as CSSProperties}>
                   <div className="gantt-header-row">
-                    <div className="gantt-task-heading">PHIÊN LIVE / STUDIO</div>
-                    <div className="gantt-axis" style={{ width: `${GANTT_DAYS * GANTT_HOURS_PER_DAY * ganttPixelsPerHour}px` }}>
+                    <div className="gantt-task-heading">SECTION / CONTENT</div>
+                    <div className="gantt-axis" style={{ width: `${GANTT_DAYS * ganttPixelsPerDay}px` }}>
                       {trackingDates.map(date => <div className="gantt-day-heading" key={dateKey(date)}>
                         <b>{new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "numeric", month: "short" }).format(date)}</b>
-                        <div className="gantt-hour-labels">{[0, 6, 12, 18].map(hour => <span key={hour} style={{ left: `${hour * ganttPixelsPerHour}px` }}>{String(hour).padStart(2, "0")}:00</span>)}</div>
                       </div>)}
                     </div>
                   </div>
-                  {ganttSchedule.items.map(({ record, startHour, durationHours }) => {
-                    const type = record.values.type || "Lịch mega";
-                    const barType = /booking/i.test(type) ? "booking" : /campaign/i.test(type) ? "campaign" : "mega";
-                    const date = parseRecordDate(record.values.date || "", trackingWeekStart.getFullYear());
+                  {ganttSchedule.items.map(({ record, startDay, durationDays }) => {
+                    const startDate = parseRecordDate(record.values.startDate || "", trackingWeekStart.getFullYear());
+                    const endDate = parseRecordDate(record.values.endDate || "", trackingWeekStart.getFullYear());
                     return <div className="gantt-row" key={record.id}>
                       <div className="gantt-task-label">
-                        <b>{record.values.brand || "Chưa có thương hiệu"}</b>
-                        <span>{record.values.studio || "Chưa phân loại"} · {record.values.room || "Chưa xếp phòng"}</span>
-                        <small>{record.values.host || "Chưa gán host"} · {record.values.startTime}–{record.values.endTime}</small>
+                        <b>{record.values.section || "Tracking"} · {record.values.name || "Mục"}</b>
+                        <span>{record.values.content || record.values.name}</span>
+                        <small>{record.values.status} · {record.values.startDate} – {record.values.endDate}</small>
                       </div>
-                      <div className="gantt-track" style={{ width: `${GANTT_DAYS * GANTT_HOURS_PER_DAY * ganttPixelsPerHour}px` }}>
-                        <button className={`gantt-bar gantt-bar-${barType} ${/đang live/i.test(record.values.status || "") ? "gantt-bar-live" : ""}`} style={{ left: `${startHour * ganttPixelsPerHour}px`, width: `${durationHours * ganttPixelsPerHour}px` }} title={`${record.values.brand} · ${date ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "long" }).format(date) : record.values.date} · ${record.values.startTime}–${record.values.endTime}`} aria-label={`${record.values.brand}, ${record.values.startTime} đến ${record.values.endTime}`} onClick={() => openEdit(record)}><span/></button>
+                      <div className="gantt-track" style={{ width: `${GANTT_DAYS * ganttPixelsPerDay}px` }}>
+                        <span className="gantt-bar gantt-bar-mega" style={{ left: `${startDay * ganttPixelsPerDay}px`, width: `${durationDays * ganttPixelsPerDay}px` }} title={`${record.values.content} · ${record.values.startDate} – ${record.values.endDate}${record.values.status ? ` · ${record.values.status}` : ""}`} aria-label={`${record.values.content}, ${record.values.startDate} đến ${record.values.endDate}`} />
                       </div>
                     </div>;
                   })}
-                  {!ganttSchedule.items.length && <div className="gantt-empty"><CalendarDays size={19}/><span>Không có lịch trong khoảng thời gian này.</span></div>}
+                  {!ganttSchedule.items.length && <div className="gantt-empty"><CalendarDays size={19}/><span>{trackingLoading ? "Đang tải tracking..." : trackingError || "Không có mục tracking trong khoảng thời gian này."}</span></div>}
                 </div>
               </div>
-              {ganttSchedule.unplacedCount > 0 && <div className="gantt-unplaced"><CircleHelp size={14}/>{ganttSchedule.unplacedCount} lịch trong tuần thiếu ngày hoặc khung giờ hợp lệ nên chưa thể hiển thị trên biểu đồ.</div>}
-              <div className="tracking-footnote"><LockKeyhole size={14}/> Mỗi thanh thể hiện thời lượng live trên trục thời gian; chọn thanh để xem/sửa thông tin lịch. Dữ liệu mẫu, chưa đọc từ Google Sheets.</div>
+              {ganttSchedule.unplacedCount > 0 && <div className="gantt-unplaced"><CircleHelp size={14}/>{ganttSchedule.unplacedCount} mục tracking có ngày bắt đầu/kết thúc không hợp lệ.</div>}
+              <div className="tracking-footnote"><LockKeyhole size={14}/> Mỗi thanh thể hiện khoảng thời gian Start–End lấy từ sheet tracking.</div>
             </section>
           </div>}
 
@@ -760,14 +769,14 @@ export default function App() {
             </> : <div className="permission-denied"><LockKeyhole size={25}/><h2>Không đủ quyền truy cập</h2><p>Chỉ Superadmin mới được xem và quản lý tài khoản admin.</p><span>Dùng nút hồ sơ ở sidebar để chuyển vai trò demo.</span></div>}
           </section>}
 
-          <div className="page-footnote"><span className="connection-dot"/> {isBackendEnabled ? "Kết nối Apps Script · dữ liệu lưu trực tiếp trên Google Sheets" : "Giao diện demo · Chưa kết nối Google Sheets hoặc Google Drive"}</div>
+          {screen !== "dashboard" && <div className="page-footnote"><span className="connection-dot"/> {isBackendEnabled ? "Kết nối Apps Script · dữ liệu lưu trực tiếp trên Google Sheets" : "Giao diện demo · Chưa kết nối Google Sheets hoặc Google Drive"}</div>}
         </main>
       </div>
       <nav className="mobile-bottom-nav" aria-label="Điều hướng nhanh">
         {([
           ["dashboard", "Tổng quan", LayoutDashboard],
           ["schedules", "Lịch", CalendarDays],
-          ["backgrounds", "Nền", Package],
+          ["backgrounds", "BG", Package],
           ["hosts", "Host", Users],
           ["titles", "Title", FileText]
         ] as const).map(([key, label, Icon]) => <button key={key} className={screen === key ? "active" : ""} onClick={() => setScreen(key)}><Icon size={18}/><span>{label}</span></button>)}

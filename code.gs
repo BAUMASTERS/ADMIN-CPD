@@ -4,10 +4,12 @@ const ADMIN_SESSION_SECONDS = 21600;
 const ADMIN_LOGIN_LIMIT = 5;
 const ADMIN_LOGIN_WINDOW_SECONDS = 900;
 const ADMIN_USERS_SHEET_NAME = 'ADMIN_USERS';
-const ADMIN_UPCOMING_SPREADSHEET_ID = '1ja9bF2VI05hPMz_wDiDK6fnbR4nc605UP3IXz57bB3c';
-const ADMIN_UPCOMING_SHEET_NAME = 'LỊCH SẮP TỚI';
-const ADMIN_UPCOMING_MAX_ROWS = 500;
-const ADMIN_UPCOMING_MAX_COLUMNS = 400;
+const ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID = '1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U';
+const ADMIN_MEGA_SCHEDULE_SHEET_NAME = 'LỊCH SẮP TỚI';
+const ADMIN_TRACKING_SPREADSHEET_ID = '1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8';
+const ADMIN_TRACKING_SHEET_NAME = 'TRACKING (UNRELEASE)';
+const ADMIN_TRACKING_MAX_ROWS = 500;
+const ADMIN_TRACKING_MAX_COLUMNS = 400;
 const ADMIN_SCHEDULE_COLUMNS = {
   platform: 0,
   brand: 1,
@@ -74,8 +76,8 @@ function dispatchApiAction_(action, payload) {
       return adminCreateUser(payload.token, payload.username, payload.password);
     case 'adminSetUserActive':
       return adminSetUserActive(payload.token, payload.username, payload.active);
-    case 'adminGetUpcomingTrackingSnapshot':
-      return adminGetUpcomingTrackingSnapshot(payload.token);
+    case 'adminListDashboardTracking':
+      return adminListDashboardTracking(payload.token);
     default:
       throw new Error('API action không được hỗ trợ.');
   }
@@ -215,9 +217,8 @@ function adminSetUserActive(token, username, active) {
 
 function adminListRecords(token, section, hostGroup, division) {
   requireAdminAccess_(token);
-  const spreadsheet = getAdminSpreadsheet_(division);
   if (section === 'schedules') {
-    const sheet = getActiveScheduleSheet_(spreadsheet);
+    const sheet = getMegaScheduleSheet_();
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return [];
 
@@ -236,6 +237,7 @@ function adminListRecords(token, section, hostGroup, division) {
       .filter(record => Object.keys(record.values).some(key => record.values[key] !== ''));
   }
 
+  const spreadsheet = getAdminSpreadsheet_(division);
   if (section === 'backgrounds' || section === 'titles') {
     const sheetName = section === 'backgrounds' ? 'BG' : 'TITLE';
     const sheet = requireSheet_(spreadsheet, sheetName);
@@ -283,50 +285,64 @@ function adminListRecords(token, section, hostGroup, division) {
   throw new Error('Loại dữ liệu không được hỗ trợ.');
 }
 
-function adminGetUpcomingTrackingSnapshot(token) {
+function adminListDashboardTracking(token) {
   requireAdminAccess_(token);
-  const spreadsheet = SpreadsheetApp.openById(ADMIN_UPCOMING_SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(ADMIN_UPCOMING_SHEET_NAME);
+  const spreadsheet = SpreadsheetApp.openById(ADMIN_TRACKING_SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(ADMIN_TRACKING_SHEET_NAME);
   if (!sheet) {
-    throw new Error('Không tìm thấy sheet "' + ADMIN_UPCOMING_SHEET_NAME + '".');
+    throw new Error('Không tìm thấy sheet "' + ADMIN_TRACKING_SHEET_NAME + '".');
   }
 
   const lastRow = sheet.getLastRow();
   const lastColumn = sheet.getLastColumn();
-  if (!lastRow || !lastColumn) {
-    return {
-      spreadsheetId: ADMIN_UPCOMING_SPREADSHEET_ID,
-      sheetName: ADMIN_UPCOMING_SHEET_NAME,
-      rowCount: 0,
-      columnCount: 0,
-      values: [],
-      backgrounds: [],
-      mergedRanges: []
-    };
-  }
-  if (lastRow > ADMIN_UPCOMING_MAX_ROWS || lastColumn > ADMIN_UPCOMING_MAX_COLUMNS) {
+  if (!lastRow || !lastColumn) return [];
+  if (lastRow > ADMIN_TRACKING_MAX_ROWS || lastColumn > ADMIN_TRACKING_MAX_COLUMNS) {
     throw new Error(
-      'Sheet "' + ADMIN_UPCOMING_SHEET_NAME + '" vượt giới hạn đọc an toàn (' +
-      ADMIN_UPCOMING_MAX_ROWS + ' hàng × ' + ADMIN_UPCOMING_MAX_COLUMNS + ' cột).'
+      'Sheet "' + ADMIN_TRACKING_SHEET_NAME + '" vượt giới hạn đọc an toàn (' +
+      ADMIN_TRACKING_MAX_ROWS + ' hàng × ' + ADMIN_TRACKING_MAX_COLUMNS + ' cột).'
     );
   }
 
-  const dataRange = sheet.getRange(1, 1, lastRow, lastColumn);
-  return {
-    spreadsheetId: ADMIN_UPCOMING_SPREADSHEET_ID,
-    sheetName: ADMIN_UPCOMING_SHEET_NAME,
-    rowCount: lastRow,
-    columnCount: lastColumn,
-    values: dataRange.getDisplayValues(),
-    backgrounds: dataRange.getBackgrounds(),
-    mergedRanges: dataRange.getMergedRanges().map(range => ({
-      a1: range.getA1Notation(),
-      row: range.getRow(),
-      column: range.getColumn(),
-      rows: range.getNumRows(),
-      columns: range.getNumColumns()
-    }))
-  };
+  const rows = sheet.getRange(1, 1, lastRow, lastColumn).getDisplayValues();
+  const headerRowIndex = rows.findIndex(row => {
+    const headers = row.map(value => String(value).trim().toLowerCase());
+    return ['section', 'status', 'content', 'start', 'end'].every(header => headers.includes(header));
+  });
+  if (headerRowIndex < 0) {
+    throw new Error('Không tìm thấy hàng tiêu đề Section, Status, Content, Start, End trong tracking sheet.');
+  }
+
+  const headerIndexes = {};
+  rows[headerRowIndex].forEach((value, index) => {
+    headerIndexes[String(value).trim().toLowerCase()] = index;
+  });
+  const records = [];
+  let currentSection = '';
+  rows.slice(headerRowIndex + 1).forEach((row, index) => {
+    const section = String(row[headerIndexes.section] || '').trim();
+    const status = String(row[headerIndexes.status] || '').trim();
+    const content = String(row[headerIndexes.content] || '').trim();
+    const startDate = String(row[headerIndexes.start] || '').trim();
+    const endDate = String(row[headerIndexes.end] || '').trim();
+    if (!startDate && !endDate) {
+      if (section) currentSection = section;
+      return;
+    }
+    if ((!content && !section && !currentSection) || !startDate || !endDate) return;
+    records.push({
+      rowNumber: headerRowIndex + index + 2,
+      version: makeRowVersion_(row),
+      values: {
+        section: currentSection,
+        name: section,
+        status: status,
+        content: content,
+        startDate: startDate,
+        endDate: endDate
+      }
+    });
+  });
+  return records;
 }
 
 function adminSaveRecord(token, section, hostGroup, record, division) {
@@ -337,14 +353,16 @@ function adminSaveRecord(token, section, hostGroup, record, division) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const spreadsheet = getAdminSpreadsheet_(division);
     if (section === 'schedules') {
-      saveScheduleRecord_(spreadsheet, record);
+      saveScheduleRecord_(record);
     } else if (section === 'backgrounds') {
+      const spreadsheet = getAdminSpreadsheet_(division);
       saveBackgroundRecord_(spreadsheet, record);
     } else if (section === 'titles') {
+      const spreadsheet = getAdminSpreadsheet_(division);
       saveTitleRecord_(spreadsheet, record);
     } else if (section === 'hosts') {
+      const spreadsheet = getAdminSpreadsheet_(division);
       saveHostRecord_(spreadsheet, hostGroup, record);
     } else {
       throw new Error('Loại dữ liệu không được hỗ trợ.');
@@ -387,8 +405,8 @@ function adminDeleteRecord(token, section, hostGroup, rowNumber, version, divisi
   }
 }
 
-function saveScheduleRecord_(spreadsheet, record) {
-  const sheet = getActiveScheduleSheet_(spreadsheet);
+function saveScheduleRecord_(record) {
+  const sheet = getMegaScheduleSheet_();
   const values = record.values;
   const editableFields = ['host', 'douHost', 'hostEco', 'room', 'status', 'isKeep'];
   if (record.rowNumber === undefined || record.rowNumber === null || record.rowNumber === '') {
@@ -532,18 +550,18 @@ function appendRowNumber_(sheet, firstDataRow) {
 }
 
 function getSectionSheet_(spreadsheet, section, hostGroup) {
-  if (section === 'schedules') return getActiveScheduleSheet_(spreadsheet);
+  if (section === 'schedules') return getMegaScheduleSheet_();
   if (section === 'backgrounds') return requireSheet_(spreadsheet, 'BG');
   if (section === 'titles') return requireSheet_(spreadsheet, 'TITLE');
   if (section === 'hosts') return getHostConfig_(spreadsheet, hostGroup).sheet;
   throw new Error('Loại dữ liệu không được hỗ trợ.');
 }
 
-function getActiveScheduleSheet_(spreadsheet) {
-  const selector = requireSheet_(spreadsheet, 'ACTURAL');
-  const sheetName = String(selector.getRange('A2').getDisplayValue() || '').trim();
-  if (!sheetName) throw new Error('Ô ACTURAL!A2 chưa có tên sheet lịch đang hoạt động.');
-  return requireSheet_(spreadsheet, sheetName);
+function getMegaScheduleSheet_() {
+  return requireSheet_(
+    SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID),
+    ADMIN_MEGA_SCHEDULE_SHEET_NAME
+  );
 }
 
 function getHostConfig_(spreadsheet, hostGroup) {

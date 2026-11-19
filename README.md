@@ -8,14 +8,14 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Build command: `npm run build`; Output Directory: `dist`.
 - `node_modules` và thư mục build được loại khỏi source/deployment; để Vercel cài dependencies trên Linux thay vì dùng binary đã tạo trên Windows.
 - Nếu deploy cũ vẫn báo `tsc: Permission denied`, redeploy một lần với **Clear build cache**.
-- Thêm Environment Variables: `VITE_API_BASE_URL=/api/apps-script` và `APPS_SCRIPT_WEB_APP_URL=https://script.google.com/macros/s/<deployment-id>/exec`.
-- Sau khi sửa `code.gs`, tạo deployment Apps Script kiểu **Web app**, chạy dưới tài khoản có quyền với spreadsheet, rồi cập nhật URL deployment trong Vercel. Proxy ngoài Google không thể gửi Google session cookie; deployment cần cho phép truy cập từ Vercel (thường là **Anyone**, nếu chính sách Workspace cho phép). Các thao tác dữ liệu vẫn bắt buộc đăng nhập admin riêng của backend.
+- Proxy mặc định dùng deployment `https://script.google.com/macros/s/AKfycbyFS2IlnCB7BPxGmEiQHE5XiK93uWOBoSrP8RaWUxqcg3UTOdSpYpe0S29NCP62uslS/exec`; có thể ghi đè bằng biến `APPS_SCRIPT_WEB_APP_URL`. Frontend cần `VITE_API_BASE_URL=/api/apps-script`.
+- Nếu `APPS_SCRIPT_WEB_APP_URL` đã tồn tại trên Vercel, cập nhật biến đó sang URL deployment mới rồi redeploy. Proxy ngoài Google không thể gửi Google session cookie; deployment cần cho phép truy cập từ Vercel (thường là **Anyone**, nếu chính sách Workspace cho phép). Các thao tác dữ liệu vẫn bắt buộc đăng nhập admin riêng của backend.
 
 ## Giao diện quản trị
 
-- Dashboard là màn hình mặc định, gồm tổng quan studio và tracking lịch sắp tới.
+- Dashboard là màn hình mặc định và chỉ hiển thị biểu đồ Gantt lấy từ sheet tracking.
 - Bản desktop có sidebar bấm để thu gọn/mở rộng; division CPD/P&G chọn được ngay từ workspace switcher.
-- Dashboard có biểu đồ Gantt theo giờ cho các phiên live trong 7 ngày; có thể chuyển tuần và lọc loại lịch.
+- Dashboard có biểu đồ Gantt theo ngày cho các khoảng Start–End trong 7 ngày; có thể chuyển tuần.
 - Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và biểu đồ Gantt cuộn ngang.
 - Chỉ có chế độ Sáng/Tối, chuyển bằng một nút; màu nhấn ice blue ở sáng và burgundy ở tối.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
@@ -29,7 +29,7 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 
 Khi Vercel chưa cấu hình `VITE_API_BASE_URL`, các nhãn “demo” hoặc “mô phỏng” có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
 
-Tracking được thiết kế để dùng dữ liệu từ spreadsheet `1ja9bF2VI05hPMz_wDiDK6fnbR4nc605UP3IXz57bB3c`, sheet `LỊCH SẮP TỚI`. Bản backend hiện có snapshot reader cho sheet đó; adapter dashboard chưa chuẩn hóa snapshot thành các phiên Gantt nên tracking vẫn lấy lịch từ API section `schedules`.
+Dashboard đọc tracking từ spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, sheet `TRACKING (UNRELEASE)`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Lịch quản lý trong module “Lịch” đọc từ spreadsheet `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`, sheet `LỊCH SẮP TỚI`; module này tiếp tục dùng cấu trúc 20 cột lịch hiện có để chỉ cho phép sửa thông tin vận hành.
 
 ## Apps Script
 
@@ -64,6 +64,5 @@ Backend dùng PBKDF2-HMAC-SHA256 với salt riêng, giới hạn thử mật kh�
 - Quản lý tài khoản admin chưa được nối vào màn hình admin-users; màn hình đó vẫn dùng dữ liệu mô phỏng.
 - Upload và quản lý hình trên Google Drive; hiện chỉ chọn tệp và xem trước cục bộ.
 - Khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
-- Dashboard chưa dùng snapshot của sheet `LỊCH SẮP TỚI`; vẫn đang tạo Gantt từ dữ liệu lịch trong division.
 - Nghiệp vụ Livestream Checking và Warning Checking.
-- Cần triển khai và kiểm thử với spreadsheet thực tế trước production.
+- Cần triển khai và kiểm thử quyền truy cập với spreadsheet thực tế trước production.

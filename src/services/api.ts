@@ -87,6 +87,14 @@ export async function listBackendRecords(
   return result.map(record => ({ ...record, id: String(record.rowNumber) }));
 }
 
+export async function listDashboardTracking(): Promise<RecordItem[]> {
+  const session = requireSession();
+  const result = await callBackend<Array<Omit<RecordItem, "id">>>("adminListDashboardTracking", {
+    token: session.token
+  });
+  return result.map(record => ({ ...record, id: String(record.rowNumber) }));
+}
+
 export async function saveBackendRecord(
   module: ModuleKey,
   values: Record<string, string>,

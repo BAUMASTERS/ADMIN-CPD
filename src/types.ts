@@ -28,7 +28,7 @@ export type ModuleConfig = {
 
 export const moduleConfig: Record<ModuleKey, ModuleConfig> = {
   schedules: {
-    title: "Lịch phát sóng",
+    title: "Lịch",
     description: "Quản lý lịch live, nhân sự và thông tin vận hành.",
     singular: "khung giờ",
     columns: [
@@ -65,7 +65,7 @@ export const moduleConfig: Record<ModuleKey, ModuleConfig> = {
     ]
   },
   titles: {
-    title: "Tiêu đề live",
+    title: "Title",
     description: "Quản lý mẫu tiêu đề và các thành phần ghép tự động.",
     singular: "tiêu đề",
     columns: [

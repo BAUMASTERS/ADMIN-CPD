@@ -1,4 +1,5 @@
 const MAX_BODY_BYTES = 1024 * 1024;
+const DEFAULT_APP_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyFS2IlnCB7BPxGmEiQHE5XiK93uWOBoSrP8RaWUxqcg3UTOdSpYpe0S29NCP62uslS/exec";
 const APP_SCRIPT_URL_PATTERN = /^https:\/\/script\.google\.com\/(?:macros\/s\/[A-Za-z0-9_-]+|a\/macros\/[A-Za-z0-9.-]+\/s\/[A-Za-z0-9_-]+)\/exec$/;
 
 export default async function handler(request, response) {
@@ -9,8 +10,8 @@ export default async function handler(request, response) {
     return response.status(405).json({ success: false, error: "Method not allowed." });
   }
 
-  const appScriptUrl = process.env.APPS_SCRIPT_WEB_APP_URL;
-  if (!appScriptUrl || !APP_SCRIPT_URL_PATTERN.test(appScriptUrl)) {
+  const appScriptUrl = process.env.APPS_SCRIPT_WEB_APP_URL?.trim() || DEFAULT_APP_SCRIPT_URL;
+  if (!APP_SCRIPT_URL_PATTERN.test(appScriptUrl)) {
     return response.status(503).json({
       success: false,
       error: "APPS_SCRIPT_WEB_APP_URL chưa được cấu hình đúng trên Vercel."
