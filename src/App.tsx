@@ -493,7 +493,7 @@ export default function App() {
       return;
     }
     const listedAccount = accounts.find(account => account.username === username);
-    if (listedAccount && (!isBackendEnabled || listedAccount.provisioned)) {
+    if (listedAccount && !isBackendEnabled) {
       setToast("Tên tài khoản đã tồn tại.");
       return;
     }
@@ -501,7 +501,9 @@ export default function App() {
       if (isBackendEnabled) {
         await createAdminAccount(username, accountDraft.password);
         setAccounts(await listAdminAccounts());
-        setToast("Đã cấp quyền đăng nhập cho user trong sheet LIST.");
+        setToast(listedAccount?.provisioned
+          ? "Đã đổi mật khẩu đăng nhập cho user trong sheet LIST."
+          : "Đã cấp mật khẩu đăng nhập cho user trong sheet LIST.");
       } else {
         setAccounts(current => [...current, { username, role: "admincpd", active: true, provisioned: true }]);
         setToast("Đã thêm tài khoản trong phiên demo.");
@@ -820,14 +822,14 @@ export default function App() {
 
           {screen === "admin-users" && <section className="data-panel">
             {canManageLibrary ? <>
-              <div className="panel-heading"><div><h2>Danh sách tài khoản truy cập</h2><p>{accounts.length} user trong LIST · mật khẩu cần được cấp riêng</p></div><div className="account-heading-actions"><span className="permission-note"><ShieldCheck size={14}/> Superadmin</span><button className="create-button" onClick={openAccountCreate}><Plus size={15}/> Cấp đăng nhập</button></div></div>
+              <div className="panel-heading"><div><h2>Danh sách tài khoản truy cập</h2><p>{accounts.length} user trong LIST · mật khẩu lấy từ cột password</p></div><div className="account-heading-actions"><span className="permission-note"><ShieldCheck size={14}/> Superadmin</span><button className="create-button" onClick={openAccountCreate}><Plus size={15}/> Cấp / đổi mật khẩu</button></div></div>
               <div className="account-list">{accounts.map(account => <article className="account-row" key={account.username}>
                 <span className="profile-avatar">{(account.name || account.username).slice(0, 2).toUpperCase()}</span>
                 <span className="account-details"><b>{account.name || account.username}</b><small>{account.username} · {getRoleLabel(account.role)}</small></span>
                 <span className={`status ${!account.provisioned ? "status-amber" : account.active ? "status-green" : "status-red"}`}>{!account.provisioned ? "Chưa cấp đăng nhập" : account.active ? "Đang hoạt động" : "Đã khóa"}</span>
                 <button className="outline-button account-toggle" disabled={account.role === "superadmin" || !account.provisioned} onClick={() => void toggleAdminAccount(account)}>{account.active ? "Khóa" : "Mở khóa"}</button>
               </article>)}</div>
-              <div className="asset-notice"><LockKeyhole size={15}/> Danh tính và role lấy từ LIST; mật khẩu trong LIST bị bỏ qua. Mật khẩu đăng nhập được cấp riêng và lưu dạng hash.</div>
+              <div className="asset-notice"><LockKeyhole size={15}/> Tên, role và mật khẩu đăng nhập lấy từ LIST. Cột C chỉ được backend đọc để xác thực, không gửi mật khẩu về trình duyệt.</div>
             </> : <div className="permission-denied"><LockKeyhole size={25}/><h2>Không đủ quyền truy cập</h2><p>Chỉ Superadmin mới được xem và quản lý tài khoản admin.</p><span>Dùng nút hồ sơ ở sidebar để chuyển vai trò demo.</span></div>}
           </section>}
 
@@ -888,10 +890,10 @@ export default function App() {
       </form></div>}
 
       {accountModal && <div className="form-overlay"><form className="small-modal" onSubmit={saveAdminAccount}>
-        <div className="form-header"><div><span className="eyebrow">SUPERADMIN</span><h2>Cấp quyền đăng nhập</h2><p>User phải được thêm trước trong sheet LIST.</p></div><button type="button" className="icon-button" onClick={() => setAccountModal(false)} aria-label="Đóng"><X/></button></div>
+        <div className="form-header"><div><span className="eyebrow">SUPERADMIN</span><h2>Cấp hoặc đổi mật khẩu</h2><p>User phải được thêm trước trong sheet LIST.</p></div><button type="button" className="icon-button" onClick={() => setAccountModal(false)} aria-label="Đóng"><X/></button></div>
         <div className="form-content"><div className="form-grid">
           <label className="form-field"><span>User ID trong LIST *</span><input autoComplete="off" required value={accountDraft.username} onChange={event => setAccountDraft(current => ({ ...current, username: event.target.value }))}/></label>
-          <label className="form-field"><span>Mật khẩu đăng nhập mới *</span><input type="password" autoComplete="new-password" minLength={12} required value={accountDraft.password} onChange={event => setAccountDraft(current => ({ ...current, password: event.target.value }))}/><small>Từ 12 ký tự. Mật khẩu của LIST không được dùng; backend chỉ lưu hash.</small></label>
+          <label className="form-field"><span>Mật khẩu đăng nhập mới *</span><input type="password" autoComplete="new-password" minLength={12} required value={accountDraft.password} onChange={event => setAccountDraft(current => ({ ...current, password: event.target.value }))}/><small>Từ 12 ký tự. Backend lưu mật khẩu vào cột C (password) của LIST; mật khẩu không hiển thị trong danh sách.</small></label>
         </div></div>
         <div className="form-footer"><button type="button" className="outline-button" onClick={() => setAccountModal(false)}>Hủy</button><button className="create-button"><Check size={16}/> Tạo tài khoản</button></div>
       </form></div>}

@@ -35,20 +35,13 @@ Spreadsheet `1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E` là nguồn dữ li�
 
 Chép `code.gs` vào Apps Script project. Project không phục vụ giao diện HTML.
 
-Trong **Apps Script > Project Settings > Script Properties**, cấu hình:
+Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ spreadsheet `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`, sheet `LIST`: cột B `userid`, C `password`, D `name`, E `role`, F `avatar`; cột G `active` là tùy chọn để khóa/mở tài khoản (ô trống được xem là đang hoạt động). Role hợp lệ là `superadmin`, `admincpd` (chỉ CPD), và `adminpng` (chỉ P&G). Đặt mật khẩu ban đầu của Superadmin trực tiếp trong LIST!C; sau đó Superadmin có thể cấp hoặc đổi mật khẩu cho user đã có trong danh sách ở màn hình Tài khoản admin.
 
-| Property | Giá trị |
-|---|---|
-| `ADMIN_USERS_SPREADSHEET_ID` | Tùy chọn. Nếu bỏ trống, tab riêng `ADMIN_USERS` (chứa salt và hash, không mật khẩu rõ) sẽ được tạo trong spreadsheet tài khoản admin `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`. Có thể chỉ định spreadsheet lưu auth riêng nếu cần. |
-| `ADMIN_SETUP_KEY` | Chuỗi ngẫu nhiên tối thiểu 32 ký tự. Dùng một lần để tạo superadmin đầu tiên; backend xóa property sau bootstrap. |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Mật khẩu tạm thời do bạn tự đặt (12–128 ký tự); helper sẽ xóa property này sau khi tạo superadmin thành công. Không đưa mật khẩu vào mã nguồn hoặc chat. |
-Danh bạ tài khoản lấy từ spreadsheet `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`, sheet `LIST`: cột B `userid`, D `name`, E `role`, F `avatar`. Backend chỉ đọc các cột này và không đọc cột C `password`. Role hợp lệ là `superadmin`, `admincpd` (chỉ CPD), và `adminpng` (chỉ P&G). Mật khẩu đăng nhập được cấp riêng và lưu dạng hash/salt trong tab `ADMIN_USERS` của spreadsheet này theo mặc định; user phải có mặt trong `LIST` trước khi Superadmin cấp quyền đăng nhập ở màn hình Tài khoản admin. Chỉ chủ sở hữu/backend operator và Superadmin đáng tin cậy được sửa sheet `LIST`, vì cột role quyết định quyền truy cập. Các mật khẩu dạng rõ đã có trong LIST nên được đổi/xóa thủ công.
+**Lưu ý:** theo yêu cầu, mật khẩu được lưu dạng văn bản trong LIST!C. Bất kỳ ai có quyền xem spreadsheet đều có thể đọc chúng; chỉ cấp quyền xem sheet cho người được phép quản lý tài khoản và không dùng lại các mật khẩu quan trọng khác. Backend chỉ đọc mật khẩu để xác thực, không trả giá trị này trong API. Cột C được ghi dưới dạng text khi đổi mật khẩu để giữ nguyên ký tự như số 0 ở đầu. Tab `ADMIN_USERS` hoặc các Script Properties của cơ chế đăng nhập cũ không còn được sử dụng; nếu còn dữ liệu cũ, chúng không được tự động xóa.
 
-Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. `doPost` cung cấp JSON actions có allowlist; `doGet` là health check. Frontend gọi `/api/apps-script`; Vercel proxy chuyển tiếp request tới URL deployment được cấu hình trong `APPS_SCRIPT_WEB_APP_URL`, tránh gọi Apps Script trực tiếp từ browser/CORS. Không có giao diện admin được phục vụ từ Apps Script. Bootstrap superadmin cần được gọi qua một trusted caller.
+Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. `doPost` cung cấp JSON actions có allowlist; `doGet` là health check. Frontend gọi `/api/apps-script`; Vercel proxy chuyển tiếp request tới URL deployment được cấu hình trong `APPS_SCRIPT_WEB_APP_URL`, tránh gọi Apps Script trực tiếp từ browser/CORS. Không có giao diện admin được phục vụ từ Apps Script.
 
-Để tạo superadmin đầu tiên, đặt `ADMIN_SETUP_KEY` và `ADMIN_BOOTSTRAP_PASSWORD` trong Script Properties, sau đó chọn hàm `adminBootstrapSuperadmin` trong Apps Script Editor và bấm **Run**. Tài khoản được tạo là `superadmin`; mật khẩu tạm được xóa khỏi properties sau khi chạy thành công, còn setup key cũng bị xóa. Bootstrap chỉ dùng một lần.
-
-Backend dùng PBKDF2-HMAC-SHA256 với salt riêng, giới hạn thử mật khẩu sai theo tài khoản, và phiên token tối đa 6 giờ. Không đưa setup key hoặc mật khẩu vào mã nguồn/commit.
+Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token tối đa 6 giờ. Sau khi cập nhật `code.gs`, cần cập nhật Apps Script project và deploy phiên bản Web app mới.
 
 ## Quyền dữ liệu
 
