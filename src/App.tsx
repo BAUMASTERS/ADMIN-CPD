@@ -156,8 +156,8 @@ export default function App() {
   const isDataModule = moduleKeys.includes(screen as ModuleKey);
   const module = (isDataModule ? screen : "schedules") as ModuleKey;
   const config = moduleConfig[module];
-  const canCreate = module === "hosts";
-  const canDelete = module === "hosts";
+  const canCreate = module === "hosts" && division === "CPD";
+  const canDelete = module === "hosts" && division === "CPD";
   const canManageLibrary = isBackendEnabled ? adminSession?.role === "superadmin" : demoRole === "superadmin";
 
   useEffect(() => {
@@ -191,12 +191,15 @@ export default function App() {
 
   useEffect(() => {
     if (!isDataModule) return;
+    setRecords([]);
+    setQuery("");
     if (isBackendEnabled && !adminSession) return;
     let active = true;
     listRecords(module, division, hostGroup)
       .then(result => { if (active) setRecords(result); })
       .catch(error => {
         if (!active) return;
+        setRecords([]);
         const message = error instanceof Error ? error.message : "Không thể tải dữ liệu.";
         setToast(message);
         if (/phiên đăng nhập hết hạn|phiên đăng nhập không hợp lệ/i.test(message)) {
@@ -204,7 +207,6 @@ export default function App() {
           setAdminSession(null);
         }
       });
-    setQuery("");
     return () => { active = false; };
   }, [module, isDataModule, division, hostGroup, adminSession]);
 
@@ -544,8 +546,8 @@ export default function App() {
     setToast("Đã chọn hình. Bản xem trước chỉ lưu trong phiên này, chưa tải lên Drive.");
   };
 
-  const navButton = (key: Screen, label: string, Icon: typeof CalendarDays, badge?: string) => (
-    <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)} title={sidebarCollapsed ? label : undefined}>
+  const navButton = (key: Screen, label: string, Icon: typeof CalendarDays, badge?: string, disabled = false) => (
+    <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)} title={sidebarCollapsed ? label : undefined} disabled={disabled}>
       <Icon size={18}/><span>{label}</span>{badge && <small className="nav-badge">{badge}</small>}
       {screen === key && <span className="nav-indicator"/>}
     </button>
@@ -598,10 +600,16 @@ export default function App() {
             </div>}
           </div>
           <div className="nav-caption">KHÔNG GIAN LÀM VIỆC</div>
-          <nav className="side-nav">{navButton("dashboard", "Tổng quan", LayoutDashboard)}</nav>
+          <nav className="side-nav">{navButton("dashboard", "Tổng quan", LayoutDashboard, division === "P&G" ? "CPD" : undefined, division === "P&G")}</nav>
           <div className="nav-caption secondary-nav-caption">QUẢN LÝ DỮ LIỆU</div>
           <nav className="side-nav">
-            {moduleKeys.map(key => navButton(key, moduleConfig[key].title, icons[key]))}
+            {moduleKeys.map(key => navButton(
+              key,
+              moduleConfig[key].title,
+              icons[key],
+              division === "P&G" && key !== "schedules" ? "CPD" : undefined,
+              division === "P&G" && key !== "schedules"
+            ))}
             {navButton("library", "Thư viện", Library)}
           </nav>
           <div className="nav-caption secondary-nav-caption">KIỂM TRA</div>
@@ -833,7 +841,10 @@ export default function App() {
           ["backgrounds", "BG", Package],
           ["hosts", "Host", Users],
           ["titles", "Title", FileText]
-        ] as const).map(([key, label, Icon]) => <button key={key} className={screen === key ? "active" : ""} onClick={() => setScreen(key)}><Icon size={18}/><span>{label}</span></button>)}
+        ] as const).map(([key, label, Icon]) => {
+          const disabled = division === "P&G" && key !== "schedules";
+          return <button key={key} className={screen === key ? "active" : ""} onClick={() => setScreen(key)} disabled={disabled}><Icon size={18}/><span>{label}</span></button>;
+        })}
       </nav>
 
       {formOpen && <div className="form-overlay"><form className="record-form" onSubmit={handleSave}>

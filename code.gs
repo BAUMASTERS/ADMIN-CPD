@@ -601,21 +601,15 @@ function getSectionSheet_(spreadsheet, section, hostGroup, division) {
   throw new Error('Loại dữ liệu không được hỗ trợ.');
 }
 
-function getActiveScheduleSheet_(spreadsheet) {
-  const selector = requireSheet_(spreadsheet, 'ACTURAL');
-  const sheetName = String(selector.getRange('A2').getDisplayValue() || '').trim();
-  if (!sheetName) throw new Error('Ô ACTURAL!A2 chưa có tên sheet lịch đang hoạt động.');
-  return requireSheet_(spreadsheet, sheetName);
-}
-
 function getScheduleSheetForDivision_(division) {
-  if (String(division || '').trim().toUpperCase() === 'CPD') {
-    return requireSheet_(
-      SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID),
-      ADMIN_MEGA_SCHEDULE_SHEET_NAME
-    );
+  const normalizedDivision = String(division || '').trim().toUpperCase();
+  if (normalizedDivision !== 'CPD' && normalizedDivision !== 'P&G') {
+    throw new Error('Phải chọn division CPD hoặc P&G trước khi truy cập dữ liệu.');
   }
-  return getActiveScheduleSheet_(getAdminSpreadsheet_(division));
+  return requireSheet_(
+    SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID),
+    ADMIN_MEGA_SCHEDULE_SHEET_NAME
+  );
 }
 
 function getHostConfig_(spreadsheet, hostGroup) {
@@ -638,22 +632,12 @@ function getHostConfig_(spreadsheet, hostGroup) {
 
 function getAdminSpreadsheet_(division) {
   const normalizedDivision = String(division || '').trim().toUpperCase();
-  if (!normalizedDivision) {
-    throw new Error('Phải chọn division CPD hoặc P&G trước khi truy cập dữ liệu.');
+  if (!normalizedDivision) throw new Error('Phải chọn division CPD hoặc P&G trước khi truy cập dữ liệu.');
+  if (normalizedDivision === 'P&G') {
+    throw new Error('Title, Background và mã host hiện chỉ được cấu hình cho CPD.');
   }
-  const properties = PropertiesService.getScriptProperties();
-  let spreadsheetId;
-  if (normalizedDivision === 'CPD') {
-    spreadsheetId = properties.getProperty('ADMIN_SPREADSHEET_ID_CPD') || ADMIN_SPREADSHEET_ID;
-  } else if (normalizedDivision === 'P&G') {
-    spreadsheetId = properties.getProperty('ADMIN_SPREADSHEET_ID_PG');
-  } else {
-    throw new Error('Division không hợp lệ. Chọn CPD hoặc P&G.');
-  }
-  if (!spreadsheetId) {
-    throw new Error('Chưa cấu hình spreadsheet ID cho division ' + normalizedDivision + '.');
-  }
-  return SpreadsheetApp.openById(spreadsheetId);
+  if (normalizedDivision !== 'CPD') throw new Error('Division không hợp lệ. Chọn CPD hoặc P&G.');
+  return SpreadsheetApp.openById(ADMIN_SPREADSHEET_ID);
 }
 
 function requireSheet_(spreadsheet, name) {
@@ -700,10 +684,7 @@ function makeRowVersion_(row) {
 
 function getAdminUsersSheet_() {
   const spreadsheetId = PropertiesService.getScriptProperties()
-    .getProperty('ADMIN_USERS_SPREADSHEET_ID');
-  if (!spreadsheetId) {
-    throw new Error('Chưa cấu hình ADMIN_USERS_SPREADSHEET_ID trong Script Properties.');
-  }
+    .getProperty('ADMIN_USERS_SPREADSHEET_ID') || ADMIN_ACCOUNT_DIRECTORY_SPREADSHEET_ID;
   const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
   let sheet = spreadsheet.getSheetByName(ADMIN_USERS_SHEET_NAME);
   if (!sheet) {
