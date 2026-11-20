@@ -4,10 +4,13 @@ const ADMIN_SESSION_SECONDS = 21600;
 const ADMIN_LOGIN_LIMIT = 5;
 const ADMIN_LOGIN_WINDOW_SECONDS = 900;
 const ADMIN_USERS_SHEET_NAME = 'ADMIN_USERS';
+const ADMIN_BOOTSTRAP_PASSWORD_PROPERTY = 'ADMIN_BOOTSTRAP_PASSWORD';
+const ADMIN_ACCOUNT_DIRECTORY_SPREADSHEET_ID = '1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk';
+const ADMIN_ACCOUNT_DIRECTORY_SHEET_NAME = 'LIST';
 const ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID = '1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U';
 const ADMIN_MEGA_SCHEDULE_SHEET_NAME = 'LỊCH SẮP TỚI';
 const ADMIN_TRACKING_SPREADSHEET_ID = '1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8';
-const ADMIN_TRACKING_SHEET_NAME = 'TRACKING (UNRELEASE)';
+const ADMIN_TRACKING_SHEET_NAME = 'TRACKING (CPD)';
 const ADMIN_TRACKING_MAX_ROWS = 500;
 const ADMIN_TRACKING_MAX_COLUMNS = 400;
 const ADMIN_SCHEDULE_COLUMNS = {
@@ -77,7 +80,7 @@ function dispatchApiAction_(action, payload) {
     case 'adminSetUserActive':
       return adminSetUserActive(payload.token, payload.username, payload.active);
     case 'adminListDashboardTracking':
-      return adminListDashboardTracking(payload.token);
+      return adminListDashboardTracking(payload.token, payload.division);
     default:
       throw new Error('API action không được hỗ trợ.');
   }
@@ -101,6 +104,10 @@ function adminBootstrap(setupKey, username, password) {
       throw new Error('Setup key không hợp lệ hoặc đã được sử dụng.');
     }
 
+    const directoryUser = findAccountDirectoryUser_(username);
+    if (!directoryUser || directoryUser.role !== 'superadmin') {
+      throw new Error('Thêm user superadmin vào sheet LIST trước khi bootstrap.');
+    }
     const sheet = getAdminUsersSheet_();
     if (sheet.getLastRow() > 1) {
       throw new Error('Đã có tài khoản admin. Bootstrap chỉ dùng một lần.');
@@ -112,6 +119,24 @@ function adminBootstrap(setupKey, username, password) {
   } finally {
     lock.releaseLock();
   }
+}
+
+function adminBootstrapSuperadmin() {
+  const properties = PropertiesService.getScriptProperties();
+  const password = properties.getProperty(ADMIN_BOOTSTRAP_PASSWORD_PROPERTY);
+  if (!password) {
+    throw new Error(
+      'Hãy đặt Script Property ' + ADMIN_BOOTSTRAP_PASSWORD_PROPERTY +
+      ' bằng mật khẩu mới (12–128 ký tự) trước khi chạy bootstrap.'
+    );
+  }
+  const result = adminBootstrap(
+    properties.getProperty('ADMIN_SETUP_KEY'),
+    'superadmin',
+    password
+  );
+  properties.deleteProperty(ADMIN_BOOTSTRAP_PASSWORD_PROPERTY);
+  return result;
 }
 
 function adminLogin(username, password) {
@@ -136,11 +161,12 @@ function adminLogin(username, password) {
 
   const sheet = getAdminUsersSheet_();
   const user = findAdminUser_(sheet, normalizedUsername);
+  const directoryUser = findAccountDirectoryUser_(normalizedUsername);
   const candidateHash = hashAdminPassword_(password, user ? user.salt : 'unknown-user-salt');
   const passwordMatches = user
     ? constantTimeEquals_(candidateHash, user.passwordHash)
     : constantTimeEquals_(candidateHash, 'invalid-password-hash');
-  if (!user || !user.active || !passwordMatches) {
+  if (!user || !directoryUser || !user.active || !passwordMatches) {
     return { success: false, message: 'Tên tài khoản hoặc mật khẩu không đúng.' };
   }
 
@@ -148,13 +174,13 @@ function adminLogin(username, password) {
   const token = Utilities.getUuid() + Utilities.getUuid();
   CacheService.getScriptCache().put(token, JSON.stringify({
     username: user.username,
-    role: user.role
+    role: directoryUser.role
   }), ADMIN_SESSION_SECONDS);
   return {
     success: true,
     token: token,
     username: user.username,
-    role: user.role
+    role: directoryUser.role
   };
 }
 
@@ -165,21 +191,35 @@ function adminLogout(token) {
 
 function adminListUsers(token) {
   requireAdminAccess_(token, 'superadmin');
-  const sheet = getAdminUsersSheet_();
+  const sheet = getAccountDirectorySheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 6).getDisplayValues()
-    .filter(row => row[0])
-    .map(row => ({
-      username: row[0],
-      role: row[3],
-      active: row[4] === 'TRUE'
-    }));
+  const usernames = sheet.getRange(2, 2, lastRow - 1, 1).getDisplayValues();
+  const profiles = sheet.getRange(2, 4, lastRow - 1, 3).getDisplayValues();
+  const authSheet = getAdminUsersSheet_();
+  return usernames.map((row, index) => {
+    const username = normalizeUsername_(row[0]);
+    if (!username) return null;
+    const authUser = findAdminUser_(authSheet, username);
+    const profile = profiles[index];
+    return {
+      username: username,
+      name: profile[0] || username,
+      role: normalizeDirectoryRole_(profile[1]),
+      avatar: profile[2] || '',
+      active: Boolean(authUser && authUser.active),
+      provisioned: Boolean(authUser)
+    };
+  }).filter(Boolean);
 }
 
 function adminCreateUser(token, username, password) {
   requireAdminAccess_(token, 'superadmin');
   validateNewUser_(username, password);
+  const directoryUser = findAccountDirectoryUser_(username);
+  if (!directoryUser) {
+    throw new Error('Thêm user vào sheet LIST trước khi cấp quyền đăng nhập.');
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -187,7 +227,7 @@ function adminCreateUser(token, username, password) {
     if (findAdminUser_(sheet, normalizeUsername_(username))) {
       throw new Error('Tên tài khoản đã tồn tại.');
     }
-    appendAdminUser_(sheet, username, password, 'admin');
+    appendAdminUser_(sheet, username, password, directoryUser.role);
     return { success: true };
   } finally {
     lock.releaseLock();
@@ -205,7 +245,8 @@ function adminSetUserActive(token, username, active) {
     const sheet = getAdminUsersSheet_();
     const user = findAdminUser_(sheet, normalizedUsername);
     if (!user) throw new Error('Không tìm thấy tài khoản.');
-    if (user.role === 'superadmin' && !active) {
+    const directoryUser = findAccountDirectoryUser_(normalizedUsername);
+    if (directoryUser && directoryUser.role === 'superadmin' && !active) {
       throw new Error('Không thể khóa tài khoản superadmin.');
     }
     sheet.getRange(user.rowNumber, 5).setValue(Boolean(active));
@@ -216,9 +257,9 @@ function adminSetUserActive(token, username, active) {
 }
 
 function adminListRecords(token, section, hostGroup, division) {
-  requireAdminAccess_(token);
+  requireAdminDivisionAccess_(token, division);
   if (section === 'schedules') {
-    const sheet = getMegaScheduleSheet_();
+    const sheet = getScheduleSheetForDivision_(division);
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return [];
 
@@ -285,8 +326,11 @@ function adminListRecords(token, section, hostGroup, division) {
   throw new Error('Loại dữ liệu không được hỗ trợ.');
 }
 
-function adminListDashboardTracking(token) {
-  requireAdminAccess_(token);
+function adminListDashboardTracking(token, division) {
+  requireAdminDivisionAccess_(token, division);
+  if (String(division || '').trim().toUpperCase() !== 'CPD') {
+    throw new Error('Sheet tracking của P&G chưa được cấu hình.');
+  }
   const spreadsheet = SpreadsheetApp.openById(ADMIN_TRACKING_SPREADSHEET_ID);
   const sheet = spreadsheet.getSheetByName(ADMIN_TRACKING_SHEET_NAME);
   if (!sheet) {
@@ -346,7 +390,7 @@ function adminListDashboardTracking(token) {
 }
 
 function adminSaveRecord(token, section, hostGroup, record, division) {
-  requireAdminAccess_(token);
+  requireAdminDivisionAccess_(token, division);
   if (!record || typeof record !== 'object' || !record.values || typeof record.values !== 'object') {
     throw new Error('Dữ liệu gửi lên không hợp lệ.');
   }
@@ -354,7 +398,7 @@ function adminSaveRecord(token, section, hostGroup, record, division) {
   lock.waitLock(30000);
   try {
     if (section === 'schedules') {
-      saveScheduleRecord_(record);
+      saveScheduleRecord_(record, division);
     } else if (section === 'backgrounds') {
       const spreadsheet = getAdminSpreadsheet_(division);
       saveBackgroundRecord_(spreadsheet, record);
@@ -374,7 +418,7 @@ function adminSaveRecord(token, section, hostGroup, record, division) {
 }
 
 function adminDeleteRecord(token, section, hostGroup, rowNumber, version, division) {
-  requireAdminAccess_(token);
+  requireAdminDivisionAccess_(token, division);
   if (section === 'schedules') {
     throw new Error('Không được xóa lịch đã import từ brand.');
   }
@@ -393,7 +437,7 @@ function adminDeleteRecord(token, section, hostGroup, rowNumber, version, divisi
   lock.waitLock(30000);
   try {
     const spreadsheet = getAdminSpreadsheet_(division);
-    const sheet = getSectionSheet_(spreadsheet, section, hostGroup);
+    const sheet = getSectionSheet_(spreadsheet, section, hostGroup, division);
     const hostConfig = section === 'hosts' ? getHostConfig_(spreadsheet, hostGroup) : null;
     const width = section === 'hosts' ? 2 : 20;
     const startColumn = hostConfig ? hostConfig.nameColumn : 1;
@@ -405,8 +449,8 @@ function adminDeleteRecord(token, section, hostGroup, rowNumber, version, divisi
   }
 }
 
-function saveScheduleRecord_(record) {
-  const sheet = getMegaScheduleSheet_();
+function saveScheduleRecord_(record, division) {
+  const sheet = getScheduleSheetForDivision_(division);
   const values = record.values;
   const editableFields = ['host', 'douHost', 'hostEco', 'room', 'status', 'isKeep'];
   if (record.rowNumber === undefined || record.rowNumber === null || record.rowNumber === '') {
@@ -549,19 +593,29 @@ function appendRowNumber_(sheet, firstDataRow) {
   return rowNumber;
 }
 
-function getSectionSheet_(spreadsheet, section, hostGroup) {
-  if (section === 'schedules') return getMegaScheduleSheet_();
+function getSectionSheet_(spreadsheet, section, hostGroup, division) {
+  if (section === 'schedules') return getScheduleSheetForDivision_(division);
   if (section === 'backgrounds') return requireSheet_(spreadsheet, 'BG');
   if (section === 'titles') return requireSheet_(spreadsheet, 'TITLE');
   if (section === 'hosts') return getHostConfig_(spreadsheet, hostGroup).sheet;
   throw new Error('Loại dữ liệu không được hỗ trợ.');
 }
 
-function getMegaScheduleSheet_() {
-  return requireSheet_(
-    SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID),
-    ADMIN_MEGA_SCHEDULE_SHEET_NAME
-  );
+function getActiveScheduleSheet_(spreadsheet) {
+  const selector = requireSheet_(spreadsheet, 'ACTURAL');
+  const sheetName = String(selector.getRange('A2').getDisplayValue() || '').trim();
+  if (!sheetName) throw new Error('Ô ACTURAL!A2 chưa có tên sheet lịch đang hoạt động.');
+  return requireSheet_(spreadsheet, sheetName);
+}
+
+function getScheduleSheetForDivision_(division) {
+  if (String(division || '').trim().toUpperCase() === 'CPD') {
+    return requireSheet_(
+      SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID),
+      ADMIN_MEGA_SCHEDULE_SHEET_NAME
+    );
+  }
+  return getActiveScheduleSheet_(getAdminSpreadsheet_(division));
 }
 
 function getHostConfig_(spreadsheet, hostGroup) {
@@ -663,6 +717,39 @@ function getAdminUsersSheet_() {
   return sheet;
 }
 
+function getAccountDirectorySheet_() {
+  const spreadsheet = SpreadsheetApp.openById(ADMIN_ACCOUNT_DIRECTORY_SPREADSHEET_ID);
+  return requireSheet_(spreadsheet, ADMIN_ACCOUNT_DIRECTORY_SHEET_NAME);
+}
+
+function findAccountDirectoryUser_(username) {
+  const sheet = getAccountDirectorySheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return null;
+  // Skip column C: passwords are never read from the directory.
+  const usernames = sheet.getRange(2, 2, lastRow - 1, 1).getDisplayValues();
+  const profiles = sheet.getRange(2, 4, lastRow - 1, 3).getDisplayValues();
+  const normalizedUsername = normalizeUsername_(username);
+  let matchedUser = null;
+  for (let index = 0; index < usernames.length; index++) {
+    if (normalizeUsername_(usernames[index][0]) !== normalizedUsername) continue;
+    if (matchedUser) throw new Error('userid bị trùng trong sheet LIST.');
+    matchedUser = {
+      username: normalizedUsername,
+      name: String(profiles[index][0] || '').trim(),
+      role: normalizeDirectoryRole_(profiles[index][1]),
+      avatar: String(profiles[index][2] || '').trim()
+    };
+  }
+  return matchedUser;
+}
+
+function normalizeDirectoryRole_(value) {
+  const role = String(value || '').trim().toLowerCase();
+  if (role === 'superadmin' || role === 'admincpd' || role === 'adminpng') return role;
+  throw new Error('Role trong sheet LIST không hợp lệ.');
+}
+
 function findAdminUser_(sheet, username) {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return null;
@@ -752,13 +839,40 @@ function requireAdminAccess_(token, requiredRole) {
     CacheService.getScriptCache().remove(String(token));
     throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
   }
-  const user = findAdminUser_(getAdminUsersSheet_(), normalizeUsername_(session.username));
-  if (!user || !user.active || user.role !== session.role) {
+  const username = normalizeUsername_(session.username);
+  const user = findAdminUser_(getAdminUsersSheet_(), username);
+  let directoryUser = null;
+  try {
+    directoryUser = findAccountDirectoryUser_(username);
+  } catch (error) {
+    CacheService.getScriptCache().remove(String(token));
+    throw error;
+  }
+  if (!user || !user.active || !directoryUser || directoryUser.role !== session.role) {
     CacheService.getScriptCache().remove(String(token));
     throw new Error('Tài khoản đã bị khóa hoặc thay đổi quyền. Vui lòng đăng nhập lại.');
   }
-  if (requiredRole === 'superadmin' && user.role !== 'superadmin') {
+  if (requiredRole === 'superadmin' && directoryUser.role !== 'superadmin') {
     throw new Error('Bạn không có quyền thực hiện thao tác quản trị tài khoản.');
+  }
+  return Object.assign({}, user, {
+    role: directoryUser.role,
+    name: directoryUser.name,
+    avatar: directoryUser.avatar
+  });
+}
+
+function requireAdminDivisionAccess_(token, division) {
+  const user = requireAdminAccess_(token);
+  const normalizedDivision = String(division || '').trim().toUpperCase();
+  if (normalizedDivision !== 'CPD' && normalizedDivision !== 'P&G') {
+    throw new Error('Phải chọn division CPD hoặc P&G trước khi truy cập dữ liệu.');
+  }
+  if (user.role === 'admincpd' && normalizedDivision !== 'CPD') {
+    throw new Error('Tài khoản này chỉ có quyền truy cập division CPD.');
+  }
+  if (user.role === 'adminpng' && normalizedDivision !== 'P&G') {
+    throw new Error('Tài khoản này chỉ có quyền truy cập division P&G.');
   }
   return user;
 }

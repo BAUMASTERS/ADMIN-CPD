@@ -29,7 +29,7 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 
 Khi Vercel chưa cấu hình `VITE_API_BASE_URL`, các nhãn “demo” hoặc “mô phỏng” có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
 
-Dashboard đọc tracking từ spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, sheet `TRACKING (UNRELEASE)`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Lịch quản lý trong module “Lịch” đọc từ spreadsheet `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`, sheet `LỊCH SẮP TỚI`; module này tiếp tục dùng cấu trúc 20 cột lịch hiện có để chỉ cho phép sửa thông tin vận hành.
+Dashboard CPD đọc tracking từ spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, sheet `TRACKING (CPD)`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Tracking P&G chưa cấu hình; user P&G chỉ được thông báo nguồn chưa sẵn sàng. Lịch CPD đọc từ spreadsheet `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`, sheet `LỊCH SẮP TỚI`; lịch P&G dùng sheet đang hoạt động trong spreadsheet P&G.
 
 ## Apps Script
 
@@ -41,12 +41,15 @@ Trong **Apps Script > Project Settings > Script Properties**, cấu hình:
 |---|---|
 | `ADMIN_USERS_SPREADSHEET_ID` | ID một spreadsheet riêng, không chia sẻ cho các tài khoản admin. Backend sẽ tạo sheet `ADMIN_USERS`; sheet lưu salt và hash mật khẩu, không lưu mật khẩu rõ. |
 | `ADMIN_SETUP_KEY` | Chuỗi ngẫu nhiên tối thiểu 32 ký tự. Dùng một lần để tạo superadmin đầu tiên; backend xóa property sau bootstrap. |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Mật khẩu tạm thời do bạn tự đặt (12–128 ký tự); helper sẽ xóa property này sau khi tạo superadmin thành công. Không đưa mật khẩu vào mã nguồn hoặc chat. |
 | `ADMIN_SPREADSHEET_ID_CPD` | Spreadsheet ID của CPD; nếu bỏ trống sẽ dùng ID mặc định trong `code.gs`. |
 | `ADMIN_SPREADSHEET_ID_PG` | Spreadsheet ID của P&G; bắt buộc để chọn division P&G. |
 
+Danh bạ tài khoản lấy từ spreadsheet `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`, sheet `LIST`: cột B `userid`, D `name`, E `role`, F `avatar`. Backend chỉ đọc các cột này và không đọc cột C `password`. Role hợp lệ là `superadmin`, `admincpd` (chỉ CPD), và `adminpng` (chỉ P&G). Mật khẩu đăng nhập được cấp riêng và lưu dạng hash/salt trong sheet `ADMIN_USERS` của `ADMIN_USERS_SPREADSHEET_ID`; user phải có mặt trong `LIST` trước khi Superadmin cấp quyền đăng nhập ở màn hình Tài khoản admin. Chỉ chủ sở hữu/backend operator và Superadmin đáng tin cậy được sửa sheet `LIST`, vì cột role quyết định quyền truy cập. Các mật khẩu dạng rõ đã có trong LIST nên được đổi/xóa thủ công.
+
 Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. `doPost` cung cấp JSON actions có allowlist; `doGet` là health check. Frontend gọi `/api/apps-script`; Vercel proxy chuyển tiếp request tới URL deployment được cấu hình trong `APPS_SCRIPT_WEB_APP_URL`, tránh gọi Apps Script trực tiếp từ browser/CORS. Không có giao diện admin được phục vụ từ Apps Script. Bootstrap superadmin cần được gọi qua một trusted caller.
 
-Setup key bị xóa sau khi bootstrap thành công.
+Để tạo superadmin đầu tiên, đặt `ADMIN_SETUP_KEY` và `ADMIN_BOOTSTRAP_PASSWORD` trong Script Properties, sau đó chọn hàm `adminBootstrapSuperadmin` trong Apps Script Editor và bấm **Run**. Tài khoản được tạo là `superadmin`; mật khẩu tạm được xóa khỏi properties sau khi chạy thành công, còn setup key cũng bị xóa. Bootstrap chỉ dùng một lần.
 
 Backend dùng PBKDF2-HMAC-SHA256 với salt riêng, giới hạn thử mật khẩu sai theo tài khoản, và phiên token tối đa 6 giờ. Không đưa setup key hoặc mật khẩu vào mã nguồn/commit.
 
@@ -57,11 +60,11 @@ Backend dùng PBKDF2-HMAC-SHA256 với salt riêng, giới hạn thử mật kh�
 - Title: chỉ sửa title và các tùy chọn ghép trên record có sẵn; không thể thêm hoặc xóa. Sàn và thương hiệu được giữ nguyên.
 - Host: có thể tạo, sửa, xóa. ECO dùng sheet `ECO ID` cột C:D; BAS dùng sheet `CPD ID` cột B:C.
 - API dữ liệu yêu cầu session token hợp lệ; API quản lý tài khoản chỉ dành cho superadmin.
-- Chọn division `CPD` hoặc `P&G` trước mọi thao tác; không truyền division thì backend từ chối.
+- Role `admincpd` chỉ được truy cập CPD; `adminpng` chỉ được truy cập P&G; Superadmin được truy cập cả hai.
+- Backend kiểm tra quyền division cho từng request; không truyền division thì từ chối.
 
 ## Chưa có trong bản giao diện demo
 
-- Quản lý tài khoản admin chưa được nối vào màn hình admin-users; màn hình đó vẫn dùng dữ liệu mô phỏng.
 - Upload và quản lý hình trên Google Drive; hiện chỉ chọn tệp và xem trước cục bộ.
 - Khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
 - Nghiệp vụ Livestream Checking và Warning Checking.
