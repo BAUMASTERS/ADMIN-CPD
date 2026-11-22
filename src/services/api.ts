@@ -17,6 +17,16 @@ export type BackendAdminAccount = {
   provisioned: boolean;
 };
 
+export type AdminAccountDraft = {
+  originalUsername?: string;
+  username: string;
+  password?: string;
+  name: string;
+  role: AdminRole;
+  avatar: string;
+  active: boolean;
+};
+
 type ApiEnvelope<T> = {
   success: boolean;
   data?: T;
@@ -115,9 +125,45 @@ export async function createAdminAccount(username: string, password: string): Pr
   await callBackend("adminCreateUser", { token: session.token, username, password });
 }
 
+export async function saveAdminAccountRecord(account: AdminAccountDraft): Promise<boolean> {
+  const session = requireSession();
+  const result = await callBackend<{ success: boolean; sessionInvalidated: boolean }>(
+    "adminSaveUser",
+    { token: session.token, account }
+  );
+  return result.sessionInvalidated;
+}
+
+export async function deleteAdminAccount(username: string): Promise<boolean> {
+  const session = requireSession();
+  const result = await callBackend<{ success: boolean; sessionInvalidated: boolean }>(
+    "adminDeleteUser",
+    { token: session.token, username }
+  );
+  return result.sessionInvalidated;
+}
+
+export async function updateOwnAdminProfile(profile: { password?: string; avatar: string }): Promise<boolean> {
+  const session = requireSession();
+  const result = await callBackend<{ success: boolean; passwordChanged: boolean }>(
+    "adminUpdateOwnProfile",
+    { token: session.token, profile }
+  );
+  return result.passwordChanged;
+}
+
 export async function setAdminAccountActive(username: string, active: boolean): Promise<void> {
   const session = requireSession();
   await callBackend("adminSetUserActive", { token: session.token, username, active });
+}
+
+export async function saveDashboardTracking(record: RecordItem, division: "CPD" | "P&G"): Promise<void> {
+  const session = requireSession();
+  await callBackend("adminSaveDashboardTracking", {
+    token: session.token,
+    division,
+    record: { rowNumber: record.rowNumber, version: record.version, values: record.values }
+  });
 }
 
 export async function saveBackendRecord(

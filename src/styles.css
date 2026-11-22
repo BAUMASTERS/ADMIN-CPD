@@ -33,6 +33,43 @@
 :root[data-theme="light"][data-accent="green"]{--accent:#278454;--accent-strong:#206d45;--accent-soft:#e3f3e9}
 .topbar{background:color-mix(in srgb,var(--surface) 92%,transparent);backdrop-filter:blur(16px);border-bottom-color:color-mix(in srgb,var(--border) 72%,transparent)}
 .brand-symbol{filter:drop-shadow(0 0 12px color-mix(in srgb,var(--accent) 45%,transparent))}
+.sidebar{height:calc(100vh - 122px);min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.sidebar.sidebar-collapsed{width:68px}
+.dashboard-filters{display:flex;align-items:center;gap:8px}
+.dashboard-filters label{height:34px;display:flex;align-items:center;gap:7px;padding:0 10px;border:1px solid var(--border);border-radius:8px;color:var(--muted);font-size:9px}
+.dashboard-filters select{max-width:130px;border:0;outline:0;background:transparent;color:var(--text);font-size:10px;font-weight:600}
+.dashboard-filters select:disabled{opacity:.55}
+.gantt-day-heading.is-today{background:color-mix(in srgb,var(--accent) 13%,var(--surface-2));box-shadow:inset 0 -3px var(--accent)}
+.gantt-day-heading.is-today>b{color:var(--accent);font-weight:800}
+.gantt-day-heading>small{display:block;margin-top:3px;color:var(--accent);font-size:8px;font-weight:700}
+.gantt-edit-button{position:absolute;top:50%;right:5px;display:inline-flex;align-items:center;gap:3px;transform:translateY(-50%);padding:4px 5px;border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--muted);font-size:8px}
+.gantt-edit-button:hover{border-color:var(--accent);color:var(--accent)}
+.gantt-task-label{padding-right:44px}
+.account-actions{display:flex;align-items:center;gap:6px}
+.account-delete{width:32px;height:32px;padding:0;color:var(--red)}
+.account-toggle{white-space:nowrap}
+.account-avatar-image{width:100%;height:100%;border-radius:inherit;object-fit:cover}
+.own-account-card{display:flex;align-items:center;gap:16px;padding:24px}
+.own-account-avatar{width:68px;height:68px;font-size:19px}
+.own-account-card h3{margin:0 0 5px;font-size:14px}
+.own-account-card p{margin:0 0 9px;color:var(--muted);font-size:11px}
+.account-active-control{display:flex;align-items:center;gap:8px}
+.account-active-control input{width:16px;min-height:auto}
+.account-active-field{grid-column:1/-1}
+@media(max-width:760px){
+  .sidebar{height:auto;min-height:100vh;overflow-y:auto}
+  .sidebar.sidebar-collapsed{width:min(300px,86vw)}
+  .dashboard-filters{width:100%}
+  .dashboard-filters label{flex:1;justify-content:space-between}
+  .dashboard-filters select{max-width:none;flex:1}
+  .gantt-task-label{padding-right:39px}
+  .gantt-edit-button{right:3px;padding:4px}
+  .gantt-edit-button svg{width:12px}
+  .account-actions{width:100%;justify-content:flex-end}
+  .account-row .account-details{min-width:calc(100% - 55px)}
+  .account-row .status{margin-left:43px}
+  .account-active-field{grid-column:auto}
+}
 .brand-symbol svg:last-child{color:var(--amber)}
 .workspace{max-width:1920px;padding-top:24px;gap:24px}
 .sidebar{width:248px;min-height:calc(100vh - 130px);border:1px solid color-mix(in srgb,var(--border) 78%,transparent);border-radius:18px}

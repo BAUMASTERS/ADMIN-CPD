@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Command,
   Database, FileText, LockKeyhole, Menu, Moon,
@@ -10,14 +10,18 @@ import { deleteRecord, listRecords, saveRecord } from "./services/records";
 import {
   checkBackendConnection,
   clearAdminSession,
-  createAdminAccount,
+  deleteAdminAccount,
   getAdminSession,
   isBackendEnabled,
   listAdminAccounts,
   listDashboardTracking,
   loginAdmin,
   logoutAdmin,
+  saveAdminAccountRecord,
+  saveDashboardTracking,
   setAdminAccountActive,
+  updateOwnAdminProfile,
+  type AdminAccountDraft,
   type AdminRole,
   type AdminSession
 } from "./services/api";
@@ -30,8 +34,10 @@ type LibraryItem = { id: string; name: string; division: Division; description: 
 type CalendarSource = { id: string; name: string; color: string };
 type AdminAccount = { username: string; role: AdminRole; active: boolean; name?: string; avatar?: string; provisioned?: boolean };
 type GanttItem = { record: RecordItem; startDay: number; durationDays: number };
+type DashboardEditDraft = { status: string; content: string; startDate: string; endDate: string };
 
 const GANTT_DAYS = 7;
+const CPD_TRACKING_BRANDS = ["3ce", "drg", "gar", "mny", "oap"];
 
 const icons = {
   schedules: CalendarDays,
@@ -113,7 +119,7 @@ export default function App() {
   const [division, setDivision] = useState<Division>("CPD");
   const [records, setRecords] = useState<RecordItem[]>([]);
   const [query, setQuery] = useState("");
-  const [theme, setTheme] = useState<ThemeMode>(() => localStorage.getItem("cpd-theme") === "light" ? "light" : "dark");
+  const [theme, setTheme] = useState<ThemeMode>(() => localStorage.getItem("force-shadow-theme-v2") === "dark" ? "dark" : "light");
   const [mobileMenu, setMobileMenu] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("fs-sidebar-collapsed") === "true");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -150,8 +156,18 @@ export default function App() {
   const [localImageUrl, setLocalImageUrl] = useState("");
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountModal, setAccountModal] = useState(false);
-  const [accountDraft, setAccountDraft] = useState({ username: "", password: "" });
+  const [accountModalMode, setAccountModalMode] = useState<"create" | "edit" | "profile">("create");
+  const [accountDraft, setAccountDraft] = useState<AdminAccountDraft>({
+    username: "", password: "", name: "", role: "admincpd", avatar: "", active: true
+  });
+  const [profileDraft, setProfileDraft] = useState({ password: "", avatar: "" });
   const [trackingWeekOffset, setTrackingWeekOffset] = useState(0);
+  const [dashboardPlatform, setDashboardPlatform] = useState("TTS");
+  const [dashboardBrand, setDashboardBrand] = useState("all");
+  const [editingTracking, setEditingTracking] = useState<RecordItem | null>(null);
+  const [dashboardEditDraft, setDashboardEditDraft] = useState<DashboardEditDraft>({
+    status: "", content: "", startDate: "", endDate: ""
+  });
 
   const isDataModule = moduleKeys.includes(screen as ModuleKey);
   const module = (isDataModule ? screen : "schedules") as ModuleKey;
@@ -160,9 +176,9 @@ export default function App() {
   const canDelete = module === "hosts" && division === "CPD";
   const canManageLibrary = isBackendEnabled ? adminSession?.role === "superadmin" : demoRole === "superadmin";
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem("cpd-theme", theme);
+    localStorage.setItem("force-shadow-theme-v2", theme);
   }, [theme]);
 
   useEffect(() => {
@@ -212,13 +228,12 @@ export default function App() {
 
   useEffect(() => {
     if (screen !== "dashboard") return;
+    setTrackingRecords([]);
     if (!isBackendEnabled) {
-      setTrackingRecords([]);
       setTrackingError("Dashboard Gantt cần kết nối Apps Script để đọc sheet TRACKING (CPD).");
       return;
     }
     if (!adminSession) {
-      setTrackingRecords([]);
       setTrackingError("Đăng nhập để xem dữ liệu tracking.");
       return;
     }
@@ -241,7 +256,7 @@ export default function App() {
   }, [screen, adminSession, division]);
 
   useEffect(() => {
-    if (screen !== "admin-users" || !isBackendEnabled || adminSession?.role !== "superadmin") return;
+    if (screen !== "admin-users" || !isBackendEnabled || !adminSession) return;
     let active = true;
     listAdminAccounts()
       .then(result => { if (active) setAccounts(result); })
@@ -282,13 +297,26 @@ export default function App() {
     return date;
   });
   const trackingWeekEnd = trackingDates[trackingDates.length - 1];
+  const dashboardBrands = division === "CPD" ? CPD_TRACKING_BRANDS : [];
+  const canEditDashboard = isBackendEnabled && Boolean(adminSession) &&
+    (adminSession?.role === "superadmin" ||
+      (adminSession?.role === "admincpd" && division === "CPD") ||
+      (adminSession?.role === "adminpng" && division === "P&G"));
+  const dashboardRecords = useMemo(() => trackingRecords.filter(record => {
+    const filterKey = String(record.values.filterKey || record.values.name || record.values.section || "")
+      .toLocaleLowerCase("vi");
+    const platformMatches = !dashboardPlatform || filterKey.includes(dashboardPlatform.toLocaleLowerCase("vi"));
+    const brandMatches = dashboardBrand === "all" ||
+      filterKey.includes(dashboardBrand.toLocaleLowerCase("vi"));
+    return platformMatches && brandMatches;
+  }), [trackingRecords, dashboardPlatform, dashboardBrand]);
   const ganttSchedule = useMemo(() => {
     const items: GanttItem[] = [];
     let unplacedCount = 0;
     const rangeStart = Date.UTC(trackingWeekStart.getFullYear(), trackingWeekStart.getMonth(), trackingWeekStart.getDate());
     const rangeEnd = rangeStart + GANTT_DAYS * 24 * 60 * 60 * 1000;
 
-    trackingRecords.forEach(record => {
+    dashboardRecords.forEach(record => {
       const startDate = parseRecordDate(record.values.startDate || "", trackingWeekStart.getFullYear());
       const endDate = parseRecordDate(record.values.endDate || "", trackingWeekStart.getFullYear());
       if (!startDate || !endDate || endDate < startDate) {
@@ -304,11 +332,15 @@ export default function App() {
 
     items.sort((a, b) => a.startDay - b.startDay);
     return { items, unplacedCount };
-  }, [trackingRecords, trackingWeekStart.getTime()]);
+  }, [dashboardRecords, trackingWeekStart.getTime()]);
   const screenTitle = isDataModule ? config.title
     : screen === "dashboard" ? "Tổng quan" : screen === "library" ? "Thư viện" : screen === "admin-users" ? "Tài khoản admin"
       : screen === "livestream-checking" ? "Livestream Checking" : "Warning Checking";
   const visibleLibrary = library.filter(item => libraryFilter === "all" || item.division === libraryFilter);
+  const ownAccount = accounts.find(account =>
+    account.username === (isBackendEnabled ? adminSession?.username : undefined)
+  ) || accounts.find(account => account.role === demoRole);
+  const activeProfile = ownAccount;
 
   async function refresh() {
     if (screen === "dashboard") {
@@ -483,35 +515,87 @@ export default function App() {
 
   async function saveAdminAccount(event: FormEvent) {
     event.preventDefault();
+    if (accountModalMode === "profile") {
+      if (profileDraft.password && profileDraft.password.length < 12) {
+        setToast("Mật khẩu cần tối thiểu 12 ký tự.");
+        return;
+      }
+      try {
+        if (!isBackendEnabled) throw new Error("Hồ sơ chỉ cập nhật được khi đã kết nối Apps Script.");
+        const passwordChanged = await updateOwnAdminProfile(profileDraft);
+        if (passwordChanged) {
+          clearAdminSession();
+          setAdminSession(null);
+          setToast("Đã đổi mật khẩu. Vui lòng đăng nhập lại bằng mật khẩu mới.");
+        } else {
+          setAccounts(await listAdminAccounts());
+          setToast("Đã cập nhật avatar của bạn.");
+        }
+        setAccountModal(false);
+      } catch (error) {
+        setToast(error instanceof Error ? error.message : "Không thể cập nhật hồ sơ.");
+      }
+      return;
+    }
+
     const username = accountDraft.username.trim().toLowerCase();
     if (!/^[a-z0-9._-]{3,40}$/.test(username)) {
       setToast("Tên tài khoản cần dài 3–40 ký tự, chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.");
       return;
     }
-    if (accountDraft.password.length < 12) {
+    if (accountModalMode === "create" && accountDraft.password && accountDraft.password.length < 12) {
       setToast("Mật khẩu cần tối thiểu 12 ký tự.");
-      return;
-    }
-    const listedAccount = accounts.find(account => account.username === username);
-    if (listedAccount && !isBackendEnabled) {
-      setToast("Tên tài khoản đã tồn tại.");
       return;
     }
     try {
       if (isBackendEnabled) {
-        await createAdminAccount(username, accountDraft.password);
+        const sessionInvalidated = await saveAdminAccountRecord({ ...accountDraft, username });
+        if (sessionInvalidated) {
+          clearAdminSession();
+          setAdminSession(null);
+          setAccountModal(false);
+          setToast("Tài khoản của bạn đã thay đổi. Vui lòng đăng nhập lại.");
+          return;
+        }
         setAccounts(await listAdminAccounts());
-        setToast(listedAccount?.provisioned
-          ? "Đã đổi mật khẩu đăng nhập cho user trong sheet LIST."
-          : "Đã cấp mật khẩu đăng nhập cho user trong sheet LIST.");
+        setToast(accountModalMode === "create" ? "Đã thêm tài khoản." : "Đã cập nhật tài khoản.");
       } else {
-        setAccounts(current => [...current, { username, role: "admincpd", active: true, provisioned: true }]);
-        setToast("Đã thêm tài khoản trong phiên demo.");
+        if (accountModalMode === "create" && accounts.some(account => account.username === username)) {
+          setToast("Tên tài khoản đã tồn tại.");
+          return;
+        }
+        setAccounts(current => accountModalMode === "create"
+          ? [...current, { username, name: accountDraft.name, role: accountDraft.role, avatar: accountDraft.avatar, active: accountDraft.active, provisioned: true }]
+          : current.map(account => account.username === accountDraft.originalUsername
+            ? { username, name: accountDraft.name, role: accountDraft.role, avatar: accountDraft.avatar, active: accountDraft.active, provisioned: true }
+            : account));
+        setToast(accountModalMode === "create" ? "Đã thêm tài khoản trong phiên demo." : "Đã cập nhật tài khoản demo.");
       }
-      setAccountDraft({ username: "", password: "" });
+      setAccountDraft({ username: "", password: "", name: "", role: "admincpd", avatar: "", active: true });
       setAccountModal(false);
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "Không thể cấp tài khoản.");
+      setToast(error instanceof Error ? error.message : "Không thể lưu tài khoản.");
+    }
+  }
+
+  async function removeAdminAccount(account: AdminAccount) {
+    if (!window.confirm(`Xóa tài khoản ${account.username}?`)) return;
+    try {
+      if (isBackendEnabled) {
+        const sessionInvalidated = await deleteAdminAccount(account.username);
+        if (sessionInvalidated) {
+          clearAdminSession();
+          setAdminSession(null);
+          setToast("Đã xóa tài khoản của bạn.");
+          return;
+        }
+        setAccounts(await listAdminAccounts());
+      } else {
+        setAccounts(current => current.filter(item => item.username !== account.username));
+      }
+      setToast("Đã xóa tài khoản.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không thể xóa tài khoản.");
     }
   }
 
@@ -531,8 +615,45 @@ export default function App() {
   }
 
   function openAccountCreate() {
-    setAccountDraft({ username: "", password: "" });
+    setAccountModalMode("create");
+    setAccountDraft({ username: "", password: "", name: "", role: "admincpd", avatar: "", active: true });
     setAccountModal(true);
+  }
+
+  function openAccountEdit(account: AdminAccount) {
+    setAccountModalMode("edit");
+    setAccountDraft({
+      originalUsername: account.username,
+      username: account.username,
+      password: "",
+      name: account.name || "",
+      role: account.role,
+      avatar: account.avatar || "",
+      active: account.active
+    });
+    setAccountModal(true);
+  }
+
+  function openOwnProfile() {
+    setAccountModalMode("profile");
+    setProfileDraft({ password: "", avatar: ownAccount?.avatar || "" });
+    setAccountModal(true);
+  }
+
+  async function saveDashboardEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingTracking) return;
+    try {
+      await saveDashboardTracking({
+        ...editingTracking,
+        values: dashboardEditDraft
+      }, division);
+      setTrackingRecords(await listDashboardTracking(division));
+      setEditingTracking(null);
+      setToast("Đã cập nhật mục tổng quan.");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Không thể cập nhật mục tổng quan.");
+    }
   }
 
   const changeFile = (file?: File) => {
@@ -602,7 +723,7 @@ export default function App() {
             </div>}
           </div>
           <div className="nav-caption">KHÔNG GIAN LÀM VIỆC</div>
-          <nav className="side-nav">{navButton("dashboard", "Tổng quan", LayoutDashboard, division === "P&G" ? "CPD" : undefined, division === "P&G")}</nav>
+          <nav className="side-nav">{navButton("dashboard", "Tổng quan", LayoutDashboard)}</nav>
           <div className="nav-caption secondary-nav-caption">QUẢN LÝ DỮ LIỆU</div>
           <nav className="side-nav">
             {moduleKeys.map(key => navButton(
@@ -624,7 +745,7 @@ export default function App() {
           <div className="sidebar-bottom">
             <div className={`connection-card ${isBackendEnabled ? "backend-connection" : "demo-connection"}`}><span className="connection-dot"/><span className="sidebar-copy"><b>{isBackendEnabled ? "Đã kết nối Apps Script" : "Chế độ giao diện demo"}</b><small>{isBackendEnabled ? "Dữ liệu Google Sheets" : "Dữ liệu chỉ lưu trong phiên"}</small></span></div>
             <button className="profile-button" onClick={() => isBackendEnabled ? void handleLogout() : setDemoRole(current => current === "superadmin" ? "admincpd" : "superadmin")} title={isBackendEnabled ? "Đăng xuất" : "Chuyển vai trò mô phỏng"}>
-              <span className="profile-avatar">{isBackendEnabled ? (adminSession?.username.slice(0, 2).toUpperCase() || "AD") : "AD"}</span><span className="sidebar-copy"><b>{isBackendEnabled ? adminSession?.username : "Admin CPD"}</b><small>{isBackendEnabled ? `${getRoleLabel(adminSession?.role || "admincpd")} · Đăng xuất` : `${getRoleLabel(demoRole)} · mô phỏng`}</small></span>
+              <span className="profile-avatar">{activeProfile?.avatar ? <img className="account-avatar-image" src={activeProfile.avatar} alt=""/> : isBackendEnabled ? (adminSession?.username.slice(0, 2).toUpperCase() || "AD") : "AD"}</span><span className="sidebar-copy"><b>{activeProfile?.name || (isBackendEnabled ? adminSession?.username : "Admin CPD")}</b><small>{isBackendEnabled ? `${getRoleLabel(adminSession?.role || "admincpd")} · Đăng xuất` : `${getRoleLabel(demoRole)} · mô phỏng`}</small></span>
               <MoreHorizontal size={18}/>
             </button>
           </div>
@@ -649,7 +770,7 @@ export default function App() {
           {screen === "dashboard" && <div className="dashboard-content">
             <section className="tracking-section">
               <div className="tracking-section-heading">
-                <div><span className="section-kicker">TRACKING</span><h2>Lịch theo dõi</h2><p>Nguồn: “TRACKING ({division === "CPD" ? "CPD" : "chưa cấu hình"})” · {division}</p></div>
+                <div><span className="section-kicker">TRACKING</span><h2>Lịch theo dõi</h2></div>
                 <div className="gantt-heading-actions">
                   <div className="gantt-date-control"><button className="outline-button" aria-label="Tuần trước" onClick={() => setTrackingWeekOffset(offset => offset - 1)}><ChevronLeft size={16}/></button><span>{new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short" }).format(trackingWeekStart)} – {new Intl.DateTimeFormat("vi-VN", { day: "numeric", month: "short", year: "numeric" }).format(trackingWeekEnd)}</span><button className="outline-button" aria-label="Tuần sau" onClick={() => setTrackingWeekOffset(offset => offset + 1)}><ChevronRight size={16}/></button></div>
                   <button className="outline-button" onClick={() => void refresh()} disabled={trackingLoading}><Activity size={16}/> Làm mới</button>
@@ -658,6 +779,10 @@ export default function App() {
               </div>
               <div className="gantt-toolbar">
                 <span className="gantt-total">{ganttSchedule.items.length} mục tracking</span>
+                <div className="dashboard-filters">
+                  <label><span>Sàn</span><select value={dashboardPlatform} onChange={event => setDashboardPlatform(event.target.value)}><option value="TTS">TTS</option><option value="SHP">SHP</option></select></label>
+                  <label><span>Brand</span><select value={dashboardBrand} onChange={event => setDashboardBrand(event.target.value)} disabled={!dashboardBrands.length}><option value="all">Tất cả</option>{dashboardBrands.map(brand => <option value={brand} key={brand}>{brand.toUpperCase()}</option>)}</select></label>
+                </div>
               </div>
               <div className="gantt-scroll" role="region" aria-label="Biểu đồ Gantt tracking" tabIndex={0}>
                 <div className="gantt-board" style={{
@@ -666,8 +791,9 @@ export default function App() {
                   <div className="gantt-header-row">
                     <div className="gantt-task-heading">SECTION / CONTENT</div>
                     <div className="gantt-axis" style={{ width: `${GANTT_DAYS * ganttPixelsPerDay}px` }}>
-                      {trackingDates.map(date => <div className="gantt-day-heading" key={dateKey(date)}>
+                      {trackingDates.map(date => <div className={`gantt-day-heading ${dateKey(date) === dateKey(new Date()) ? "is-today" : ""}`} key={dateKey(date)}>
                         <b>{new Intl.DateTimeFormat("vi-VN", { weekday: "short", day: "numeric", month: "short" }).format(date)}</b>
+                        {dateKey(date) === dateKey(new Date()) && <small>Hôm nay</small>}
                       </div>)}
                     </div>
                   </div>
@@ -679,17 +805,25 @@ export default function App() {
                         <b>{record.values.section || "Tracking"} · {record.values.name || "Mục"}</b>
                         <span>{record.values.content || record.values.name}</span>
                         <small>{record.values.status} · {record.values.startDate} – {record.values.endDate}</small>
+                        {canEditDashboard && <button className="gantt-edit-button" onClick={() => {
+                          setEditingTracking(record);
+                          setDashboardEditDraft({
+                            status: record.values.status || "",
+                            content: record.values.content || "",
+                            startDate: record.values.startDate || "",
+                            endDate: record.values.endDate || ""
+                          });
+                        }} aria-label="Chỉnh sửa mục tổng quan"><Pencil size={14}/> Sửa</button>}
                       </div>
                       <div className="gantt-track" style={{ width: `${GANTT_DAYS * ganttPixelsPerDay}px` }}>
                         <span className="gantt-bar gantt-bar-mega" style={{ left: `${startDay * ganttPixelsPerDay}px`, width: `${durationDays * ganttPixelsPerDay}px` }} title={`${record.values.content} · ${record.values.startDate} – ${record.values.endDate}${record.values.status ? ` · ${record.values.status}` : ""}`} aria-label={`${record.values.content}, ${record.values.startDate} đến ${record.values.endDate}`} />
                       </div>
                     </div>;
                   })}
-                  {!ganttSchedule.items.length && <div className="gantt-empty"><CalendarDays size={19}/><span>{trackingLoading ? "Đang tải tracking..." : trackingError || "Không có mục tracking trong khoảng thời gian này."}</span></div>}
+                  {!ganttSchedule.items.length && <div className="gantt-empty"><CalendarDays size={19}/><span>{trackingLoading ? "Đang tải tracking..." : trackingError || "Không có dữ liệu phù hợp với bộ lọc và khoảng thời gian này."}</span></div>}
                 </div>
               </div>
               {ganttSchedule.unplacedCount > 0 && <div className="gantt-unplaced"><CircleHelp size={14}/>{ganttSchedule.unplacedCount} mục tracking có ngày bắt đầu/kết thúc không hợp lệ.</div>}
-              <div className="tracking-footnote"><LockKeyhole size={14}/> Mỗi thanh thể hiện khoảng thời gian Start–End lấy từ sheet tracking.</div>
             </section>
           </div>}
 
@@ -697,7 +831,7 @@ export default function App() {
             <section className="metric-row">
               <div className="metric-card"><span className="metric-icon"><Database size={18}/></span><span><small>{`Tổng ${config.singular}`}</small><b>{records.length}</b></span></div>
               <div className="metric-card"><span className="metric-icon metric-icon-green"><Check size={18}/></span><span><small>Đang hoạt động</small><b>{activeCount}</b></span></div>
-              <div className="metric-note"><span className="note-icon"><Command size={17}/></span><span><b>{division} workspace</b><small>Dữ liệu demo · chưa kết nối Sheets</small></span></div>
+              {!isBackendEnabled && <div className="metric-note"><span className="note-icon"><Command size={17}/></span><span><b>{division} workspace</b><small>Dữ liệu demo · chưa kết nối Sheets</small></span></div>}
             </section>
 
             {module === "schedules" ? (
@@ -822,18 +956,23 @@ export default function App() {
 
           {screen === "admin-users" && <section className="data-panel">
             {canManageLibrary ? <>
-              <div className="panel-heading"><div><h2>Danh sách tài khoản truy cập</h2><p>{accounts.length} user trong LIST · mật khẩu lấy từ cột password</p></div><div className="account-heading-actions"><span className="permission-note"><ShieldCheck size={14}/> Superadmin</span><button className="create-button" onClick={openAccountCreate}><Plus size={15}/> Cấp / đổi mật khẩu</button></div></div>
+              <div className="panel-heading"><div><h2>Danh sách tài khoản</h2><p>{accounts.length} tài khoản</p></div><div className="account-heading-actions"><span className="permission-note"><ShieldCheck size={14}/> Superadmin</span><button className="create-button" onClick={openAccountCreate}><Plus size={15}/> Thêm tài khoản</button></div></div>
               <div className="account-list">{accounts.map(account => <article className="account-row" key={account.username}>
-                <span className="profile-avatar">{(account.name || account.username).slice(0, 2).toUpperCase()}</span>
+                <span className="profile-avatar">{account.avatar ? <img className="account-avatar-image" src={account.avatar} alt=""/> : (account.name || account.username).slice(0, 2).toUpperCase()}</span>
                 <span className="account-details"><b>{account.name || account.username}</b><small>{account.username} · {getRoleLabel(account.role)}</small></span>
-                <span className={`status ${!account.provisioned ? "status-amber" : account.active ? "status-green" : "status-red"}`}>{!account.provisioned ? "Chưa cấp đăng nhập" : account.active ? "Đang hoạt động" : "Đã khóa"}</span>
-                <button className="outline-button account-toggle" disabled={account.role === "superadmin" || !account.provisioned} onClick={() => void toggleAdminAccount(account)}>{account.active ? "Khóa" : "Mở khóa"}</button>
+                <span className={`status ${!account.provisioned ? "status-amber" : account.active ? "status-green" : "status-red"}`}>{!account.provisioned ? "Chưa cấp mật khẩu" : account.active ? "Đang hoạt động" : "Đã khóa"}</span>
+                <div className="account-actions"><button className="outline-button account-toggle" onClick={() => openAccountEdit(account)} aria-label={`Sửa ${account.username}`}><Pencil size={14}/><span>Sửa</span></button><button className="outline-button account-toggle" disabled={account.role === "superadmin" || !account.provisioned} onClick={() => void toggleAdminAccount(account)}>{account.active ? "Khóa" : "Mở khóa"}</button><button className="outline-button account-delete" onClick={() => void removeAdminAccount(account)} aria-label={`Xóa ${account.username}`}><Trash2 size={14}/></button></div>
               </article>)}</div>
-              <div className="asset-notice"><LockKeyhole size={15}/> Tên, role và mật khẩu đăng nhập lấy từ LIST. Cột C chỉ được backend đọc để xác thực, không gửi mật khẩu về trình duyệt.</div>
-            </> : <div className="permission-denied"><LockKeyhole size={25}/><h2>Không đủ quyền truy cập</h2><p>Chỉ Superadmin mới được xem và quản lý tài khoản admin.</p><span>Dùng nút hồ sơ ở sidebar để chuyển vai trò demo.</span></div>}
+            </> : <>
+              <div className="panel-heading"><div><h2>Hồ sơ của tôi</h2><p>Chỉ bạn mới xem được thông tin tài khoản này.</p></div><button className="create-button" onClick={openOwnProfile}><Pencil size={15}/> Sửa mật khẩu / avatar</button></div>
+              {ownAccount && <article className="own-account-card" key={ownAccount.username}>
+                <span className="profile-avatar own-account-avatar">{ownAccount.avatar ? <img className="account-avatar-image" src={ownAccount.avatar} alt=""/> : (ownAccount.name || ownAccount.username).slice(0, 2).toUpperCase()}</span>
+                <div><h3>{ownAccount.name || ownAccount.username}</h3><p>{ownAccount.username}</p><span className="status status-blue">{getRoleLabel(ownAccount.role)}</span></div>
+              </article>}
+            </>}
           </section>}
 
-          {screen !== "dashboard" && <div className="page-footnote"><span className="connection-dot"/> {isBackendEnabled ? "Kết nối Apps Script · dữ liệu lưu trực tiếp trên Google Sheets" : "Giao diện demo · Chưa kết nối Google Sheets hoặc Google Drive"}</div>}
+          {!isBackendEnabled && screen !== "dashboard" && <div className="page-footnote"><span className="connection-dot"/> Giao diện demo · Chưa kết nối Google Sheets hoặc Google Drive</div>}
         </main>
       </div>
       <nav className="mobile-bottom-nav" aria-label="Điều hướng nhanh">
@@ -844,7 +983,7 @@ export default function App() {
           ["hosts", "Host", Users],
           ["titles", "Title", FileText]
         ] as const).map(([key, label, Icon]) => {
-          const disabled = division === "P&G" && key !== "schedules";
+          const disabled = division === "P&G" && key !== "schedules" && key !== "dashboard";
           return <button key={key} className={screen === key ? "active" : ""} onClick={() => setScreen(key)} disabled={disabled}><Icon size={18}/><span>{label}</span></button>;
         })}
       </nav>
@@ -889,13 +1028,33 @@ export default function App() {
         <div className="form-footer"><button type="button" className="outline-button" onClick={() => setLibraryModal(false)}>Hủy</button><button className="create-button"><Check size={16}/> Lưu vào thư viện</button></div>
       </form></div>}
 
-      {accountModal && <div className="form-overlay"><form className="small-modal" onSubmit={saveAdminAccount}>
-        <div className="form-header"><div><span className="eyebrow">SUPERADMIN</span><h2>Cấp hoặc đổi mật khẩu</h2><p>User phải được thêm trước trong sheet LIST.</p></div><button type="button" className="icon-button" onClick={() => setAccountModal(false)} aria-label="Đóng"><X/></button></div>
+      {editingTracking && <div className="form-overlay"><form className="small-modal" onSubmit={saveDashboardEdit}>
+        <div className="form-header"><div><span className="eyebrow">{division} · TỔNG QUAN</span><h2>Chỉnh sửa mục tracking</h2></div><button type="button" className="icon-button" onClick={() => setEditingTracking(null)} aria-label="Đóng"><X/></button></div>
         <div className="form-content"><div className="form-grid">
-          <label className="form-field"><span>User ID trong LIST *</span><input autoComplete="off" required value={accountDraft.username} onChange={event => setAccountDraft(current => ({ ...current, username: event.target.value }))}/></label>
-          <label className="form-field"><span>Mật khẩu đăng nhập mới *</span><input type="password" autoComplete="new-password" minLength={12} required value={accountDraft.password} onChange={event => setAccountDraft(current => ({ ...current, password: event.target.value }))}/><small>Từ 12 ký tự. Backend lưu mật khẩu vào cột C (password) của LIST; mật khẩu không hiển thị trong danh sách.</small></label>
+          <label className="form-field"><span>Trạng thái</span><input value={dashboardEditDraft.status} onChange={event => setDashboardEditDraft(current => ({ ...current, status: event.target.value }))}/></label>
+          <label className="form-field field-full"><span>Nội dung</span><textarea required value={dashboardEditDraft.content} onChange={event => setDashboardEditDraft(current => ({ ...current, content: event.target.value }))}/></label>
+          <label className="form-field"><span>Bắt đầu</span><input required value={dashboardEditDraft.startDate} onChange={event => setDashboardEditDraft(current => ({ ...current, startDate: event.target.value }))}/></label>
+          <label className="form-field"><span>Kết thúc</span><input required value={dashboardEditDraft.endDate} onChange={event => setDashboardEditDraft(current => ({ ...current, endDate: event.target.value }))}/></label>
         </div></div>
-        <div className="form-footer"><button type="button" className="outline-button" onClick={() => setAccountModal(false)}>Hủy</button><button className="create-button"><Check size={16}/> Tạo tài khoản</button></div>
+        <div className="form-footer"><button type="button" className="outline-button" onClick={() => setEditingTracking(null)}>Hủy</button><button className="create-button"><Check size={16}/> Lưu thay đổi</button></div>
+      </form></div>}
+
+      {accountModal && <div className="form-overlay"><form className="small-modal" onSubmit={saveAdminAccount}>
+        <div className="form-header"><div><span className="eyebrow">{accountModalMode === "profile" ? "HỒ SƠ CÁ NHÂN" : "SUPERADMIN"}</span><h2>{accountModalMode === "profile" ? "Cập nhật hồ sơ" : accountModalMode === "create" ? "Thêm tài khoản" : "Chỉnh sửa tài khoản"}</h2></div><button type="button" className="icon-button" onClick={() => setAccountModal(false)} aria-label="Đóng"><X/></button></div>
+        <div className="form-content"><div className="form-grid">
+          {accountModalMode === "profile" ? <>
+            <label className="form-field field-full"><span>Avatar URL</span><input type="url" value={profileDraft.avatar} onChange={event => setProfileDraft(current => ({ ...current, avatar: event.target.value }))}/></label>
+            <label className="form-field field-full"><span>Mật khẩu mới</span><input type="password" autoComplete="new-password" minLength={12} value={profileDraft.password} onChange={event => setProfileDraft(current => ({ ...current, password: event.target.value }))}/><small>Để trống nếu chỉ đổi avatar. Mật khẩu mới tối thiểu 12 ký tự.</small></label>
+          </> : <>
+            <label className="form-field"><span>User ID *</span><input autoComplete="off" required value={accountDraft.username} onChange={event => setAccountDraft(current => ({ ...current, username: event.target.value }))}/></label>
+            <label className="form-field"><span>Tên hiển thị *</span><input required value={accountDraft.name} onChange={event => setAccountDraft(current => ({ ...current, name: event.target.value }))}/></label>
+            <label className="form-field"><span>Role</span><select value={accountDraft.role} onChange={event => setAccountDraft(current => ({ ...current, role: event.target.value as AdminRole }))}><option value="superadmin">Superadmin</option><option value="admincpd">Admin CPD</option><option value="adminpng">Admin P&amp;G</option></select></label>
+            <label className="form-field"><span>Avatar URL</span><input type="url" value={accountDraft.avatar} onChange={event => setAccountDraft(current => ({ ...current, avatar: event.target.value }))}/></label>
+            <label className="form-field field-full"><span>{accountModalMode === "create" ? "Mật khẩu *" : "Mật khẩu mới"}</span><input type="password" autoComplete="new-password" minLength={12} required={accountModalMode === "create"} value={accountDraft.password || ""} onChange={event => setAccountDraft(current => ({ ...current, password: event.target.value }))}/><small>{accountModalMode === "create" ? "Ít nhất 12 ký tự." : "Để trống nếu không đổi mật khẩu."} Cột active trong LIST sẽ được đồng bộ khi khóa/mở.</small></label>
+            <label className="form-field account-active-field"><span>Trạng thái</span><span className="account-active-control"><input type="checkbox" checked={accountDraft.active} onChange={event => setAccountDraft(current => ({ ...current, active: event.target.checked }))}/> Đang hoạt động</span></label>
+          </>}
+        </div></div>
+        <div className="form-footer"><button type="button" className="outline-button" onClick={() => setAccountModal(false)}>Hủy</button><button className="create-button"><Check size={16}/> Lưu</button></div>
       </form></div>}
 
       {toast && <div className="toast"><Check size={16}/>{toast}</div>}

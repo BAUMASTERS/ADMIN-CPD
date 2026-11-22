@@ -13,9 +13,10 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 
 ## Giao diện quản trị
 
-- Dashboard là màn hình mặc định và chỉ hiển thị biểu đồ Gantt lấy từ sheet tracking.
+- Dashboard là màn hình mặc định và chỉ hiển thị biểu đồ Gantt lấy từ sheet tracking. Có thể lọc theo sàn TTS/SHP và brand; filter match chuỗi trong cột B của tracking. Brand CPD gồm 3ce, drg, gar, mny, oap.
 - Bản desktop có sidebar bấm để thu gọn/mở rộng; division CPD/P&G chọn được ngay từ workspace switcher.
-- Dashboard có biểu đồ Gantt theo ngày cho các khoảng Start–End trong 7 ngày; có thể chuyển tuần.
+- Dashboard có biểu đồ Gantt theo ngày cho các khoảng Start–End trong 7 ngày; có thể chuyển tuần và hôm nay được nhấn mạnh. Superadmin và admin CPD được sửa trạng thái, nội dung, ngày bắt đầu/kết thúc của tracking CPD.
+- Tổng quan P&G dùng spreadsheet `1-c5kYP09R_uuxM_161N3P_oC2L0gOjyE8fOdL7uSf3w`, tab `26'TRACKING`, với các cột `Section`, `Status`, `Content`, `Start`, `End`. Danh sách brand P&G chưa khai báo nên bộ lọc brand hiện để “Tất cả”; admin P&G chỉ được sửa dữ liệu P&G.
 - Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và biểu đồ Gantt cuộn ngang.
 - Chỉ có chế độ Sáng/Tối, chuyển bằng một nút; màu nhấn ice blue ở sáng và burgundy ở tối.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
@@ -24,7 +25,7 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Title chỉ sửa title và các tùy chọn ghép trên record có sẵn; không tạo/xóa, không sửa sàn/thương hiệu.
 - Mã host có lựa chọn ECO/BAS và CRUD dữ liệu mẫu.
 - Thư viện có xem theo division; quyền thêm/sửa/xóa chỉ mô phỏng role Superadmin trong giao diện.
-- Trang tài khoản admin có tạo/khóa tài khoản mẫu và chỉ hiển thị thao tác cho role Superadmin mô phỏng.
+- Superadmin có thể thêm, sửa, khóa/mở và xóa tài khoản trong LIST. Admin CPD/P&G chỉ xem được hồ sơ của mình và chỉ đổi mật khẩu/avatar.
 - Livestream Checking và Warning Checking được hiển thị là tính năng sắp phát triển.
 
 Khi Vercel chưa cấu hình `VITE_API_BASE_URL`, các nhãn “demo” hoặc “mô phỏng” có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
@@ -35,13 +36,13 @@ Spreadsheet `1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E` là nguồn dữ li�
 
 Chép `code.gs` vào Apps Script project. Project không phục vụ giao diện HTML.
 
-Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ spreadsheet `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`, sheet `LIST`: cột B `userid`, C `password`, D `name`, E `role`, F `avatar`; cột G `active` là tùy chọn để khóa/mở tài khoản (ô trống được xem là đang hoạt động). Role hợp lệ là `superadmin`, `admincpd` (chỉ CPD), và `adminpng` (chỉ P&G). Đặt mật khẩu ban đầu của Superadmin trực tiếp trong LIST!C; sau đó Superadmin có thể cấp hoặc đổi mật khẩu cho user đã có trong danh sách ở màn hình Tài khoản admin.
+Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ spreadsheet `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`, sheet `LIST`: cột B `userid`, C `password`, D `name`, E `role`, F `avatar`; cột G `active` là tùy chọn để khóa/mở tài khoản (ô trống được xem là đang hoạt động). Role hợp lệ là `superadmin`, `admincpd` (CPD), và `adminpng` (P&G). Superadmin có thể thêm, sửa, khóa/mở và xóa tài khoản trực tiếp từ giao diện. User thường chỉ nhận hồ sơ của chính mình từ API và chỉ có thể cập nhật mật khẩu/avatar.
 
 **Lưu ý:** theo yêu cầu, mật khẩu được lưu dạng văn bản trong LIST!C. Bất kỳ ai có quyền xem spreadsheet đều có thể đọc chúng; chỉ cấp quyền xem sheet cho người được phép quản lý tài khoản và không dùng lại các mật khẩu quan trọng khác. Backend chỉ đọc mật khẩu để xác thực, không trả giá trị này trong API. Cột C được ghi dưới dạng text khi đổi mật khẩu để giữ nguyên ký tự như số 0 ở đầu. Tab `ADMIN_USERS` hoặc các Script Properties của cơ chế đăng nhập cũ không còn được sử dụng; nếu còn dữ liệu cũ, chúng không được tự động xóa.
 
 Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. `doPost` cung cấp JSON actions có allowlist; `doGet` là health check. Frontend gọi `/api/apps-script`; Vercel proxy chuyển tiếp request tới URL deployment được cấu hình trong `APPS_SCRIPT_WEB_APP_URL`, tránh gọi Apps Script trực tiếp từ browser/CORS. Không có giao diện admin được phục vụ từ Apps Script.
 
-Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token tối đa 6 giờ. Sau khi cập nhật `code.gs`, cần cập nhật Apps Script project và deploy phiên bản Web app mới.
+Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token tối đa 6 giờ. Quyền sửa tracking được kiểm tra tại Apps Script: superadmin có thể sửa cả hai division; `admincpd` chỉ CPD; `adminpng` chỉ P&G. Sau khi cập nhật `code.gs`, cần cập nhật Apps Script project và deploy phiên bản Web app mới.
 
 ## Quyền dữ liệu
 
@@ -49,8 +50,8 @@ Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token t
 - Background: chỉ sửa record hiện có; không thể thêm/xóa record riêng.
 - Title: chỉ sửa title và các tùy chọn ghép trên record có sẵn; không thể thêm hoặc xóa. Sàn và thương hiệu được giữ nguyên.
 - Host: có thể tạo, sửa, xóa. ECO dùng sheet `ECO ID` cột C:D; BAS dùng sheet `CPD ID` cột B:C.
-- API dữ liệu yêu cầu session token hợp lệ; API quản lý tài khoản chỉ dành cho superadmin.
-- Role `admincpd` chỉ được truy cập CPD; `adminpng` chỉ được truy cập division P&G (hiện chỉ lịch mega chung sẵn sàng); Superadmin được truy cập cả hai.
+- API dữ liệu yêu cầu session token hợp lệ; API CRUD tài khoản chỉ dành cho superadmin. User thường chỉ được gọi API hồ sơ cá nhân để đổi mật khẩu/avatar của chính mình.
+- Role `admincpd` chỉ được truy cập CPD; `adminpng` chỉ division P&G; Superadmin được truy cập cả hai.
 - Backend kiểm tra quyền division cho từng request; không truyền division thì từ chối.
 
 ## Chưa có trong bản giao diện demo

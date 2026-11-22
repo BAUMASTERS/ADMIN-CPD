@@ -8,6 +8,8 @@ const ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID = '1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNv
 const ADMIN_MEGA_SCHEDULE_SHEET_NAME = 'LỊCH SẮP TỚI';
 const ADMIN_TRACKING_SPREADSHEET_ID = '1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8';
 const ADMIN_TRACKING_SHEET_NAME = 'TRACKING (CPD)';
+const ADMIN_TRACKING_PG_SPREADSHEET_ID = '1-c5kYP09R_uuxM_161N3P_oC2L0gOjyE8fOdL7uSf3w';
+const ADMIN_TRACKING_PG_SHEET_NAME = "26'TRACKING";
 const ADMIN_TRACKING_MAX_ROWS = 500;
 const ADMIN_TRACKING_MAX_COLUMNS = 400;
 const ADMIN_SCHEDULE_COLUMNS = {
@@ -74,10 +76,18 @@ function dispatchApiAction_(action, payload) {
       return adminListUsers(payload.token);
     case 'adminCreateUser':
       return adminCreateUser(payload.token, payload.username, payload.password);
+    case 'adminSaveUser':
+      return adminSaveUser(payload.token, payload.account);
+    case 'adminDeleteUser':
+      return adminDeleteUser(payload.token, payload.username);
     case 'adminSetUserActive':
       return adminSetUserActive(payload.token, payload.username, payload.active);
+    case 'adminUpdateOwnProfile':
+      return adminUpdateOwnProfile(payload.token, payload.profile);
     case 'adminListDashboardTracking':
       return adminListDashboardTracking(payload.token, payload.division);
+    case 'adminSaveDashboardTracking':
+      return adminSaveDashboardTracking(payload.token, payload.division, payload.record);
     default:
       throw new Error('API action không được hỗ trợ.');
   }
@@ -135,7 +145,17 @@ function adminLogout(token) {
 }
 
 function adminListUsers(token) {
-  requireAdminAccess_(token, 'superadmin');
+  const requester = requireAdminAccess_(token);
+  if (requester.role !== 'superadmin') {
+    return [{
+      username: requester.username,
+      name: requester.name || requester.username,
+      role: requester.role,
+      avatar: requester.avatar,
+      active: true,
+      provisioned: true
+    }];
+  }
   const sheet = getAccountDirectorySheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
@@ -156,20 +176,125 @@ function adminListUsers(token) {
 
 function adminCreateUser(token, username, password) {
   requireAdminAccess_(token, 'superadmin');
-  validateNewUser_(username, password);
-  const directoryUser = findAccountDirectoryUser_(username);
-  if (!directoryUser) {
-    throw new Error('Thêm user vào sheet LIST trước khi cấp quyền đăng nhập.');
-  }
+  const account = findAccountDirectoryUser_(username);
+  if (!account) throw new Error('Không tìm thấy user trong sheet LIST.');
+  account.originalUsername = account.username;
+  account.password = password;
+  return adminSaveUser(token, account);
+}
+
+function adminSaveUser(token, account) {
+  const requester = requireAdminAccess_(token, 'superadmin');
+  if (!account || typeof account !== 'object') throw new Error('Thông tin tài khoản không hợp lệ.');
+  const username = normalizeUsername_(account.username);
+  validateUsername_(username);
+  const password = account.password === undefined || account.password === null
+    ? ''
+    : String(account.password);
+  if (password) validateNewUser_(username, password);
+  const name = cleanAccountField_(account.name, 'Tên', 100, true);
+  const avatar = cleanAccountField_(account.avatar, 'Avatar', 1000, false);
+  const role = normalizeDirectoryRole_(account.role);
+  const active = account.active !== false;
+  const originalUsername = normalizeUsername_(account.originalUsername);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const sheet = getAccountDirectorySheet_();
     ensureAccountActiveColumn_(sheet);
-    sheet.getRange(directoryUser.rowNumber, 3).setNumberFormat('@');
-    sheet.getRange(directoryUser.rowNumber, 3).setValue(password);
-    sheet.getRange(directoryUser.rowNumber, 7).setValue(true);
-    return { success: true };
+    const existing = originalUsername ? findAccountDirectoryUser_(originalUsername, true) : null;
+    const collision = findAccountDirectoryUser_(username);
+    if (originalUsername && !existing) {
+      throw new Error('Không tìm thấy tài khoản cần chỉnh sửa trong sheet LIST.');
+    }
+    if (collision && (!existing || collision.rowNumber !== existing.rowNumber)) {
+      throw new Error('Tên tài khoản đã tồn tại.');
+    }
+    if (existing) {
+      const currentPassword = existing.password;
+      const nextPassword = password || currentPassword;
+      if (existing.role === 'superadmin' && (!active || role !== 'superadmin')) {
+        ensureAnotherActiveSuperadmin_(sheet, existing.rowNumber);
+      }
+      sheet.getRange(existing.rowNumber, 3).setNumberFormat('@');
+      sheet.getRange(existing.rowNumber, 2, 1, 5).setValues([[
+        username,
+        nextPassword,
+        name,
+        role,
+        avatar
+      ]]);
+      sheet.getRange(existing.rowNumber, 7).setValue(Boolean(active));
+    } else {
+      if (collision) throw new Error('Tên tài khoản đã tồn tại.');
+      if (!password) throw new Error('Cần nhập mật khẩu cho tài khoản mới.');
+      const rowNumber = Math.max(2, sheet.getLastRow() + 1);
+      sheet.getRange(rowNumber, 3).setNumberFormat('@');
+      sheet.getRange(rowNumber, 2, 1, 6).setValues([[
+        username,
+        password,
+        name,
+        role,
+        avatar,
+        Boolean(active)
+      ]]);
+    }
+    const sessionInvalidated = Boolean(existing &&
+      existing.username === requester.username &&
+      (existing.username !== username || Boolean(password) || existing.role !== role || !active));
+    if (sessionInvalidated) CacheService.getScriptCache().remove(String(token));
+    return { success: true, sessionInvalidated: sessionInvalidated };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function adminDeleteUser(token, username) {
+  const requester = requireAdminAccess_(token, 'superadmin');
+  const normalizedUsername = normalizeUsername_(username);
+  if (!normalizedUsername) throw new Error('Tên tài khoản không hợp lệ.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sheet = getAccountDirectorySheet_();
+    const user = findAccountDirectoryUser_(normalizedUsername);
+    if (!user) throw new Error('Không tìm thấy tài khoản trong sheet LIST.');
+    if (user.role === 'superadmin' && user.active) {
+      ensureAnotherActiveSuperadmin_(sheet, user.rowNumber);
+    }
+    sheet.deleteRow(user.rowNumber);
+    const sessionInvalidated = user.username === requester.username;
+    if (sessionInvalidated) CacheService.getScriptCache().remove(String(token));
+    return { success: true, sessionInvalidated: sessionInvalidated };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function adminUpdateOwnProfile(token, profile) {
+  const user = requireAdminAccess_(token);
+  if (!profile || typeof profile !== 'object') throw new Error('Thông tin hồ sơ không hợp lệ.');
+  if (Object.keys(profile).some(key => key !== 'password' && key !== 'avatar')) {
+    throw new Error('Chỉ được thay đổi avatar và mật khẩu của chính mình.');
+  }
+  const avatar = cleanAccountField_(profile.avatar, 'Avatar', 1000, false);
+  const password = profile.password === undefined || profile.password === null
+    ? ''
+    : String(profile.password);
+  if (password) validateNewUser_(user.username, password);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const current = findAccountDirectoryUser_(user.username);
+    if (!current) throw new Error('Không tìm thấy tài khoản trong sheet LIST.');
+    const sheet = getAccountDirectorySheet_();
+    sheet.getRange(current.rowNumber, 6).setValue(avatar);
+    if (password) {
+      sheet.getRange(current.rowNumber, 3).setNumberFormat('@');
+      sheet.getRange(current.rowNumber, 3).setValue(password);
+      CacheService.getScriptCache().remove(String(token));
+    }
+    return { success: true, passwordChanged: Boolean(password) };
   } finally {
     lock.releaseLock();
   }
@@ -269,40 +394,14 @@ function adminListRecords(token, section, hostGroup, division) {
 
 function adminListDashboardTracking(token, division) {
   requireAdminDivisionAccess_(token, division);
-  if (String(division || '').trim().toUpperCase() !== 'CPD') {
-    throw new Error('Sheet tracking của P&G chưa được cấu hình.');
-  }
-  const spreadsheet = SpreadsheetApp.openById(ADMIN_TRACKING_SPREADSHEET_ID);
-  const sheet = spreadsheet.getSheetByName(ADMIN_TRACKING_SHEET_NAME);
-  if (!sheet) {
-    throw new Error('Không tìm thấy sheet "' + ADMIN_TRACKING_SHEET_NAME + '".');
-  }
-
-  const lastRow = sheet.getLastRow();
-  const lastColumn = sheet.getLastColumn();
-  if (!lastRow || !lastColumn) return [];
-  if (lastRow > ADMIN_TRACKING_MAX_ROWS || lastColumn > ADMIN_TRACKING_MAX_COLUMNS) {
-    throw new Error(
-      'Sheet "' + ADMIN_TRACKING_SHEET_NAME + '" vượt giới hạn đọc an toàn (' +
-      ADMIN_TRACKING_MAX_ROWS + ' hàng × ' + ADMIN_TRACKING_MAX_COLUMNS + ' cột).'
-    );
-  }
-
-  const rows = sheet.getRange(1, 1, lastRow, lastColumn).getDisplayValues();
-  const headerRowIndex = rows.findIndex(row => {
-    const headers = row.map(value => String(value).trim().toLowerCase());
-    return ['section', 'status', 'content', 'start', 'end'].every(header => headers.includes(header));
-  });
-  if (headerRowIndex < 0) {
-    throw new Error('Không tìm thấy hàng tiêu đề Section, Status, Content, Start, End trong tracking sheet.');
-  }
-
-  const headerIndexes = {};
-  rows[headerRowIndex].forEach((value, index) => {
-    headerIndexes[String(value).trim().toLowerCase()] = index;
-  });
+  const context = getDashboardTrackingContext_(division);
+  if (!context.rows.length) return [];
+  const rows = context.rows;
+  const headerRowIndex = context.headerRowIndex;
+  const headerIndexes = context.headerIndexes;
   const records = [];
   let currentSection = '';
+  let currentFilterKey = '';
   rows.slice(headerRowIndex + 1).forEach((row, index) => {
     const section = String(row[headerIndexes.section] || '').trim();
     const status = String(row[headerIndexes.status] || '').trim();
@@ -310,7 +409,10 @@ function adminListDashboardTracking(token, division) {
     const startDate = String(row[headerIndexes.start] || '').trim();
     const endDate = String(row[headerIndexes.end] || '').trim();
     if (!startDate && !endDate) {
-      if (section) currentSection = section;
+      if (section) {
+        currentSection = section;
+        currentFilterKey = String(row[1] || section).trim();
+      }
       return;
     }
     if ((!content && !section && !currentSection) || !startDate || !endDate) return;
@@ -320,6 +422,7 @@ function adminListDashboardTracking(token, division) {
       values: {
         section: currentSection,
         name: section,
+        filterKey: String(row[1] || currentFilterKey || section || currentSection).trim(),
         status: status,
         content: content,
         startDate: startDate,
@@ -328,6 +431,134 @@ function adminListDashboardTracking(token, division) {
     });
   });
   return records;
+}
+
+function adminSaveDashboardTracking(token, division, record) {
+  const user = requireAdminDivisionAccess_(token, division);
+  const normalizedDivision = String(division || '').trim().toUpperCase();
+  if (user.role !== 'superadmin' &&
+    ((user.role === 'admincpd' && normalizedDivision !== 'CPD') ||
+      (user.role === 'adminpng' && normalizedDivision !== 'P&G'))) {
+    throw new Error('Bạn không có quyền chỉnh sửa tổng quan của division này.');
+  }
+  if (!record || typeof record !== 'object' || !record.values || typeof record.values !== 'object') {
+    throw new Error('Dữ liệu tracking không hợp lệ.');
+  }
+  const rowNumber = Number(record.rowNumber);
+  if (!Number.isInteger(rowNumber) || rowNumber < 2) throw new Error('Dòng tracking không hợp lệ.');
+  const values = record.values;
+  const editableFields = ['status', 'content', 'startDate', 'endDate'];
+  validateRecordUpdate_(values, {}, editableFields, []);
+  const context = getDashboardTrackingContext_(division);
+  if (rowNumber <= context.headerRowIndex + 1 || rowNumber > context.rows.length) {
+    throw new Error('Không tìm thấy dòng tracking.');
+  }
+  const currentRow = context.rows[rowNumber - 1];
+  if (makeRowVersion_(currentRow) !== record.version) {
+    throw new Error('Dữ liệu tracking đã thay đổi. Hãy tải lại rồi thử lại.');
+  }
+  const columns = {
+    status: context.headerIndexes.status,
+    content: context.headerIndexes.content,
+    startDate: context.headerIndexes.start,
+    endDate: context.headerIndexes.end
+  };
+  const cleanedValues = {};
+  editableFields.forEach(key => {
+    if (!Object.prototype.hasOwnProperty.call(values, key)) return;
+    const value = cleanText_(values[key], key);
+    if ((key === 'startDate' || key === 'endDate') &&
+      !/^(?:\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[\/.-]\d{1,2}(?:[\/.-]\d{2,4})?)$/.test(value)) {
+      throw new Error('Ngày bắt đầu và kết thúc cần có định dạng YYYY-MM-DD hoặc dd/MM/yyyy.');
+    }
+    cleanedValues[key] = value;
+  });
+  const updatedStart = Object.prototype.hasOwnProperty.call(values, 'startDate')
+    ? cleanedValues.startDate
+    : String(currentRow[columns.startDate] || '').trim();
+  const updatedEnd = Object.prototype.hasOwnProperty.call(values, 'endDate')
+    ? cleanedValues.endDate
+    : String(currentRow[columns.endDate] || '').trim();
+  const parsedStart = parseDashboardDate_(updatedStart);
+  const parsedEnd = parseDashboardDate_(updatedEnd);
+  if (!Number.isFinite(parsedStart) || !Number.isFinite(parsedEnd)) {
+    throw new Error('Ngày bắt đầu và kết thúc không hợp lệ.');
+  }
+  if (parsedStart > parsedEnd) {
+    throw new Error('Ngày bắt đầu không thể sau ngày kết thúc.');
+  }
+  Object.keys(cleanedValues).forEach(key => {
+    context.sheet.getRange(rowNumber, columns[key] + 1).setValue(cleanedValues[key]);
+  });
+  return { success: true };
+}
+
+function parseDashboardDate_(value) {
+  const text = String(value || '').trim();
+  let match = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (match) return validDashboardDate_(
+    Number(match[1]), Number(match[2]), Number(match[3])
+  );
+  match = text.match(/^(\d{1,2})[\/.-](\d{1,2})(?:[\/.-](\d{2,4}))?$/);
+  if (!match) return NaN;
+  const year = match[3] ? Number(match[3].length === 2 ? '20' + match[3] : match[3]) : new Date().getFullYear();
+  return validDashboardDate_(year, Number(match[2]), Number(match[1]));
+}
+
+function validDashboardDate_(year, month, day) {
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return NaN;
+  }
+  return date.getTime();
+}
+
+function getDashboardTrackingContext_(division) {
+  const normalizedDivision = String(division || '').trim().toUpperCase();
+  let spreadsheetId = '';
+  let sheetName = '';
+  if (normalizedDivision === 'CPD') {
+    spreadsheetId = ADMIN_TRACKING_SPREADSHEET_ID;
+    sheetName = ADMIN_TRACKING_SHEET_NAME;
+  } else if (normalizedDivision === 'P&G') {
+    spreadsheetId = ADMIN_TRACKING_PG_SPREADSHEET_ID;
+    sheetName = ADMIN_TRACKING_PG_SHEET_NAME;
+  } else {
+    throw new Error('Division không hợp lệ.');
+  }
+  if (!spreadsheetId || !sheetName) {
+    throw new Error('Sheet tracking của division ' + normalizedDivision + ' chưa được cấu hình.');
+  }
+  const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
+  const sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet) throw new Error('Không tìm thấy sheet "' + sheetName + '".');
+  const lastRow = sheet.getLastRow();
+  const lastColumn = sheet.getLastColumn();
+  if (!lastRow || !lastColumn) return { sheet: sheet, rows: [], headerRowIndex: -1, headerIndexes: {} };
+  if (lastRow > ADMIN_TRACKING_MAX_ROWS || lastColumn > ADMIN_TRACKING_MAX_COLUMNS) {
+    throw new Error(
+      'Sheet "' + sheetName + '" vượt giới hạn đọc an toàn (' +
+      ADMIN_TRACKING_MAX_ROWS + ' hàng × ' + ADMIN_TRACKING_MAX_COLUMNS + ' cột).'
+    );
+  }
+  const rows = sheet.getRange(1, 1, lastRow, lastColumn).getDisplayValues();
+  const headerRowIndex = rows.findIndex(row => {
+    const headers = row.map(value => String(value).trim().toLowerCase());
+    return ['section', 'status', 'content', 'start', 'end'].every(header => headers.includes(header));
+  });
+  if (headerRowIndex < 0) {
+    throw new Error('Không tìm thấy hàng tiêu đề Section, Status, Content, Start, End trong tracking sheet.');
+  }
+  const headerIndexes = {};
+  rows[headerRowIndex].forEach((value, index) => {
+    headerIndexes[String(value).trim().toLowerCase()] = index;
+  });
+  return {
+    sheet: sheet,
+    rows: rows,
+    headerRowIndex: headerRowIndex,
+    headerIndexes: headerIndexes
+  };
 }
 
 function adminSaveRecord(token, section, hostGroup, record, division) {
@@ -675,6 +906,20 @@ function ensureAccountActiveColumn_(sheet) {
   }
 }
 
+function ensureAnotherActiveSuperadmin_(sheet, excludedRowNumber) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) throw new Error('Phải giữ lại ít nhất một superadmin đang hoạt động.');
+  const rows = sheet.getRange(2, 2, lastRow - 1, 6).getDisplayValues();
+  const anotherActiveSuperadmin = rows.some((row, index) =>
+    index + 2 !== excludedRowNumber &&
+    String(row[3] || '').trim().toLowerCase() === 'superadmin' &&
+    isDirectoryUserActive_(row[5])
+  );
+  if (!anotherActiveSuperadmin) {
+    throw new Error('Không thể xóa hoặc vô hiệu hóa superadmin cuối cùng đang hoạt động.');
+  }
+}
+
 function normalizeDirectoryRole_(value) {
   const role = String(value || '').trim().toLowerCase();
   if (role === 'superadmin' || role === 'admincpd' || role === 'adminpng') return role;
@@ -682,13 +927,23 @@ function normalizeDirectoryRole_(value) {
 }
 
 function validateNewUser_(username, password) {
-  const normalizedUsername = normalizeUsername_(username);
-  if (!/^[a-z0-9._-]{3,40}$/.test(normalizedUsername)) {
-    throw new Error('Tên tài khoản cần dài 3–40 ký tự, chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.');
-  }
+  validateUsername_(username);
   if (typeof password !== 'string' || password.length < 12 || password.length > 128) {
     throw new Error('Mật khẩu cần dài từ 12 đến 128 ký tự.');
   }
+}
+
+function validateUsername_(username) {
+  if (!/^[a-z0-9._-]{3,40}$/.test(normalizeUsername_(username))) {
+    throw new Error('Tên tài khoản cần dài 3–40 ký tự, chỉ gồm chữ, số, dấu chấm, gạch ngang hoặc gạch dưới.');
+  }
+}
+
+function cleanAccountField_(value, fieldName, maxLength, required) {
+  const text = cleanText_(value, fieldName);
+  if (required && !text) throw new Error(fieldName + ' không được để trống.');
+  if (text.length > maxLength) throw new Error(fieldName + ' không được vượt quá ' + maxLength + ' ký tự.');
+  return text;
 }
 
 function normalizeUsername_(username) {
