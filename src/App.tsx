@@ -47,10 +47,24 @@ const icons = {
 };
 
 const initialSources: CalendarSource[] = [
+  { id: "web-data", name: "WEB_DATA", color: "var(--ice-blue)" },
   { id: "mega", name: "Lịch mega", color: "var(--ice-blue)" },
   { id: "booking", name: "Booking host", color: "var(--accent)" },
   { id: "campaign", name: "Lịch campaign", color: "var(--amber)" }
 ];
+
+function isScheduleSourceVisible(
+  record: RecordItem,
+  sources: CalendarSource[],
+  visibleSourceIds: string[]
+) {
+  const sourceName = record.values.type || "Lịch mega";
+  const source = sources.find(item => item.name === sourceName) ||
+    initialSources.find(item => item.name === sourceName);
+  if (source) return visibleSourceIds.includes(source.id);
+  if (record.sourceId) return visibleSourceIds.includes(record.sourceId);
+  return true;
+}
 
 const initialLibrary: LibraryItem[] = [
   { id: "lib-1", name: "Master lịch livestream", division: "CPD", description: "Sheet nguồn lịch live theo tuần.", updated: "12/11/2026" },
@@ -291,7 +305,7 @@ export default function App() {
     if (screen !== "dashboard") return;
     setTrackingRecords([]);
     if (!isBackendEnabled) {
-      setTrackingError("Dashboard Gantt cần kết nối Apps Script để đọc TRACKING (UNRELEASE) hoặc sheet CPD dự phòng.");
+      setTrackingError("Dashboard Gantt cần kết nối Apps Script để đọc sheet TRACKING (CPD).");
       return;
     }
     if (!adminSession) {
@@ -348,11 +362,12 @@ export default function App() {
     return matchesPlatform && matchesBrand;
   }), [records, query, module, filterPlatform, filterBrand]);
 
-  const scheduleRecords = useMemo(() => records.filter(record => {
-    const sourceName = record.values.type || "Lịch mega";
-    const source = sources.find(item => item.name === sourceName) || initialSources.find(item => item.name === sourceName);
-    return !source || visibleSources.includes(source.id);
-  }), [records, sources, visibleSources]);
+  const scheduleRecords = useMemo(() => records.filter(record =>
+    isScheduleSourceVisible(record, sources, visibleSources)
+  ), [records, sources, visibleSources]);
+  const calendarSources = division === "CPD"
+    ? sources
+    : sources.filter(source => source.id !== "web-data");
   const dailyScheduleRecords = useMemo(() => scheduleRecords.filter(record => {
     const recordDate = parseRecordDate(record.values.date || "", selectedDate.getFullYear());
     if (!recordDate || dateKey(recordDate) !== dateKey(selectedDate)) return false;
@@ -957,7 +972,7 @@ export default function App() {
                   <div className="calendar-view-switch">{(["month", "day"] as CalendarView[]).map(view => <button key={view} className={calendarView === view ? "selected" : ""} onClick={() => setCalendarView(view)}>{view === "month" ? "Tháng" : "Theo ngày"}</button>)}</div>
                 </div>
                 <div className="calendar-source-row">
-                  <div className="calendar-source-list">{sources.map(source => <span className="calendar-source-chip" key={source.id}>
+                  <div className="calendar-source-list">{calendarSources.map(source => <span className="calendar-source-chip" key={source.id}>
                     <button className={!visibleSources.includes(source.id) ? "source-hidden" : ""} onClick={() => toggleSource(source.id)}><i style={{ background: source.color }}/>{source.name}</button>
                     <button className="source-remove" onClick={() => removeSource(source.id)} aria-label={`Bỏ ${source.name}`}><X size={12}/></button>
                   </span>)}</div>
@@ -980,11 +995,9 @@ export default function App() {
                           <div className="room-grid-label"><small>{studio}</small><b>{room}</b></div>
                           {Array.from({ length: new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate() }, (_, index) => {
                             const day = index + 1;
-                            const events = getRecordsForRoomDay(roomKey, day).filter(event => {
-                              const sourceName = event.values.type || "Lịch mega";
-                              const source = sources.find(item => item.name === sourceName) || initialSources.find(item => item.name === sourceName);
-                              return !source || visibleSources.includes(source.id);
-                            });
+                            const events = getRecordsForRoomDay(roomKey, day).filter(event =>
+                              isScheduleSourceVisible(event, sources, visibleSources)
+                            );
                             return <div className="room-grid-cell" key={`${roomKey}-${day}`}>
                               {events.map(event => <button key={event.id} className={`room-booking ${/đang live/i.test(event.values.status || "") ? "booking-live" : ""}`} title={`${event.values.brand} · ${event.values.startTime}–${event.values.endTime}`} onClick={() => openEdit(event)}>{event.values.brand}</button>)}
                             </div>;
@@ -1007,7 +1020,7 @@ export default function App() {
                         (record.values.room || "Chưa xếp phòng") === room
                       );
                       if (!events.length) return null;
-                      return <article className="daily-room-card" key={roomKey}><div><small>{studio}</small><b>{room}</b></div><div className="daily-room-events">{events.map(event => <button key={event.id} onClick={() => openEdit(event)}><b>{event.values.startTime}–{event.values.endTime}</b><span>{event.values.platform} · {event.values.brand} · {event.values.host || "Chưa gán"}</span><i className={statusClass(event.values.status)}>{event.values.status}</i></button>)}</div></article>;
+                      return <article className="daily-room-card" key={roomKey}><div><small>{studio}</small><b>{room}</b></div><div className="daily-room-events">{events.map(event => <button key={event.id} onClick={() => openEdit(event)}><b>{event.values.startTime}–{event.values.endTime}</b><span>{[event.values.platform, event.values.brand, [event.values.host, event.values.pic, event.values.hostEco, event.values.douHost, event.values.kolLive].filter(Boolean).join(" / ")].filter(Boolean).join(" · ") || "Chưa gán host"}</span><i className={statusClass(event.values.status)}>{event.values.status || "Chưa cập nhật"}</i></button>)}</div></article>;
                     })}
                     {!dailyScheduleRecords.length && <div className="empty-state"><CalendarDays size={25}/><b>Không có lịch trong ngày</b><span>Thử chọn ngày khác hoặc đổi bộ lọc.</span></div>}
                   </div>
@@ -1110,7 +1123,7 @@ export default function App() {
         <div className="form-content">
           {module === "backgrounds" && <div className="upload-demo-box">
             <div className="upload-demo-copy"><span className="upload-icon"><FolderOpen size={19}/></span><span><b>Chọn thư mục background trên Drive</b><small>Drive mở riêng; lưu link hình vào record brand hiện có.</small></span></div>
-            <a className="outline-button upload-button" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noreferrer"><FolderOpen size={15}/> Mở Google Drive</a>
+            <a className="outline-button upload-button" href="https://drive.google.com/drive/folders/1V6Tf1TBKbll-lC8oE2ynatlP4PAX2QLd" target="_blank" rel="noreferrer"><FolderOpen size={15}/> Mở thư mục Background</a>
           </div>}
           {module === "schedules" && editing && <div className="locked-record"><LockKeyhole size={15}/> {editing.values.date} · {editing.values.startTime}–{editing.values.endTime} · {editing.values.brand} <small>Thông tin import được khóa</small></div>}
           {module === "backgrounds" && editing && <div className="locked-record"><LockKeyhole size={15}/> {editing.values.platform} · {editing.values.brand}<small>Record brand được khóa, chỉ sửa phần background</small></div>}

@@ -5,6 +5,7 @@ export type RecordItem = {
   id: string;
   rowNumber: number;
   version: string;
+  sourceId?: string;
   values: Record<string, string>;
 };
 

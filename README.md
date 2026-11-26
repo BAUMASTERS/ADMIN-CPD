@@ -20,8 +20,8 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và biểu đồ Gantt cuộn ngang.
 - Chỉ có chế độ Sáng/Tối, chuyển bằng một nút; màu nhấn ice blue ở sáng và burgundy ở tối.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
-- Lịch live có chế độ xem theo tháng hoặc ngày (không có chế độ tuần); danh sách lịch xem có thể thêm/bỏ. Theo ngày có bộ lọc brand/sàn, mặc định là tất cả.
-- Background và Title có bộ lọc brand/sàn. Background chỉ sửa record hiện có; nút Drive mở My Drive để người dùng tự chọn/lưu thư mục, không upload tự động.
+- Lịch live có chế độ xem theo tháng hoặc ngày (không có chế độ tuần); danh sách lịch xem có thể thêm/bỏ. Theo ngày có bộ lọc brand/sàn, mặc định là tất cả. CPD đọc cả lịch từ `WEB_DATA` trong workbook chính và lịch mega; P&G dùng lịch mega.
+- Background và Title có bộ lọc brand/sàn. Background chỉ sửa record hiện có; nút Background mở thẳng thư mục Drive `1V6Tf1TBKbll-lC8oE2ynatlP4PAX2QLd`, không upload tự động.
 - Title chỉ sửa title và các tùy chọn ghép trên record có sẵn; không tạo/xóa, không sửa sàn/thương hiệu. TTS được kiểm tra tối đa 32 ký tự sau khi ghép `[mã host]_[hh]_[dd/mm]_title`, dùng mã host dài nhất hiện có. Shopee chặn các cụm cụ thể được liệt kê trong giao diện; nội dung nhạy cảm, hàng cấm, bản quyền và thông tin sai lệch vẫn cần kiểm tra thủ công.
 - Mã host có lựa chọn ECO/BAS và CRUD dữ liệu mẫu.
 - Thư viện có xem theo division; quyền thêm/sửa/xóa chỉ mô phỏng role Superadmin trong giao diện.
@@ -30,11 +30,11 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 
 Khi Vercel chưa cấu hình `VITE_API_BASE_URL`, các nhãn “demo” hoặc “mô phỏng” có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
 
-Spreadsheet `1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E` là nguồn dữ liệu chính của CPD (Title, Background, mã host). Dashboard CPD đọc tracking từ spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, ưu tiên sheet `TRACKING (UNRELEASE)` và dự phòng `TRACKING (CPD)`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Lịch mega và tài khoản admin dùng chung workbook `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`; lịch đọc sheet `LỊCH SẮP TỚI`, tài khoản đọc sheet `LIST`.
+Spreadsheet `1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E` là nguồn dữ liệu CPD; lịch đọc từ tab `WEB_DATA` và dò cột theo header (`PLATFORM`, `BRAND`, `DATE`, `START TIME`, `END TIME`, `PIC`, `HOST`, `ECO`, `DUO/OP`, `KOL live`), còn Title, Background và mã host đọc từ các tab tương ứng. Dashboard CPD đọc sheet `TRACKING (CPD)` trong spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Lịch mega và tài khoản admin dùng chung workbook `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`; lịch đọc sheet `LỊCH SẮP TỚI`, tài khoản đọc sheet `LIST`.
 
 ## Apps Script
 
-Chép `code.gs` vào Apps Script project. Project không phục vụ giao diện HTML.
+Thêm cả bốn file Apps Script (`code.gs`, `auth.gs`, `records.gs`, `tracking.gs`) vào cùng một Apps Script project. `code.gs` giữ cấu hình chung và điểm vào API; xác thực, CRUD sheet và tracking được tách riêng để dễ bảo trì. Project không phục vụ giao diện HTML.
 
 Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ workbook `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`, sheet `LIST`: cột B `userid`, C `password`, D `name`, E `role`, F `avatar`; cột G `active` là tùy chọn để khóa/mở tài khoản (ô trống được xem là đang hoạt động). Role hợp lệ là `superadmin`, `admincpd` (CPD), và `adminpng` (P&G). Superadmin có thể thêm, sửa, khóa/mở và xóa tài khoản trực tiếp từ giao diện. User thường chỉ nhận hồ sơ của chính mình từ API và chỉ có thể cập nhật mật khẩu/avatar.
 
@@ -42,11 +42,11 @@ Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ
 
 Các hàm Apps Script hiện thực xác thực và thao tác spreadsheet ở backend. `doPost` cung cấp JSON actions có allowlist; `doGet` là health check. Frontend gọi `/api/apps-script`; Vercel proxy chuyển tiếp request tới URL deployment được cấu hình trong `APPS_SCRIPT_WEB_APP_URL`, tránh gọi Apps Script trực tiếp từ browser/CORS. Không có giao diện admin được phục vụ từ Apps Script.
 
-Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token tối đa 6 giờ. Quyền sửa tracking được kiểm tra tại Apps Script: superadmin có thể sửa cả hai division; `admincpd` chỉ CPD; `adminpng` chỉ P&G. Sau khi cập nhật `code.gs`, cần cập nhật Apps Script project và deploy phiên bản Web app mới.
+Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token tối đa 6 giờ. Quyền sửa tracking được kiểm tra tại Apps Script: superadmin có thể sửa cả hai division; `admincpd` chỉ CPD; `adminpng` chỉ P&G. Sau khi cập nhật bất kỳ file `.gs` nào, đồng bộ file đó vào Apps Script project và deploy phiên bản Web app mới.
 
 ## Quyền dữ liệu
 
-- Lịch mega dùng chung CPD/P&G; chỉ sửa Host, Đa host, Host ECO, phòng live, trạng thái và ISKEEP. Không thể tạo hoặc xóa lịch; các trường định danh phải giữ nguyên.
+- Lịch `WEB_DATA` chỉ dành cho CPD; lịch mega dùng chung CPD/P&G. Các lịch chỉ sửa Host, Đa host, Host ECO, phòng live, trạng thái và ISKEEP. Không thể tạo hoặc xóa lịch; các trường định danh phải giữ nguyên.
 - Background: chỉ sửa record hiện có; không thể thêm/xóa record riêng.
 - Title: chỉ sửa title và các tùy chọn ghép trên record có sẵn; không thể thêm hoặc xóa. Sàn và thương hiệu được giữ nguyên.
 - Host: có thể tạo, sửa, xóa. ECO dùng sheet `ECO ID` cột C:D; BAS dùng sheet `CPD ID` cột B:C.
@@ -56,7 +56,7 @@ Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token t
 
 ## Giới hạn hiện tại
 
-- Drive chỉ mở My Drive; chưa có Google Drive Picker hoặc thao tác tải/quản lý file trực tiếp trong web.
+- Drive mở thư mục được cấu hình sẵn; chưa có Google Drive Picker hoặc thao tác tải/quản lý file trực tiếp trong web.
 - Danh sách từ cấm Shopee hiện chỉ bao gồm các cụm cụ thể user đã cung cấp; các nhóm nội dung rộng hơn cần kiểm tra thủ công.
 - Khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
 - Nghiệp vụ Livestream Checking và Warning Checking.

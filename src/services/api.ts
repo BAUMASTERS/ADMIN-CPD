@@ -103,7 +103,10 @@ export async function listBackendRecords(
     hostGroup,
     division
   });
-  return result.map(record => ({ ...record, id: String(record.rowNumber) }));
+  return result.map(record => ({
+    ...record,
+    id: `${record.sourceId || "record"}:${record.rowNumber}`
+  }));
 }
 
 export async function listDashboardTracking(division: "CPD" | "P&G"): Promise<RecordItem[]> {
@@ -179,7 +182,12 @@ export async function saveBackendRecord(
     section: module,
     hostGroup,
     division,
-    record: { rowNumber: existing?.rowNumber, version: existing?.version, values }
+    record: {
+      rowNumber: existing?.rowNumber,
+      sourceId: existing?.sourceId,
+      version: existing?.version,
+      values
+    }
   });
 }
 
