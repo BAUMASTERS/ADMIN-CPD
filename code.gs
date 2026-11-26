@@ -2,16 +2,23 @@ const ADMIN_SPREADSHEET_ID = '1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E';
 const ADMIN_SESSION_SECONDS = 21600;
 const ADMIN_LOGIN_LIMIT = 5;
 const ADMIN_LOGIN_WINDOW_SECONDS = 900;
-const ADMIN_ACCOUNT_DIRECTORY_SPREADSHEET_ID = '1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk';
+const ADMIN_ACCOUNT_DIRECTORY_SPREADSHEET_ID = '1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U';
 const ADMIN_ACCOUNT_DIRECTORY_SHEET_NAME = 'LIST';
 const ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID = '1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U';
 const ADMIN_MEGA_SCHEDULE_SHEET_NAME = 'LỊCH SẮP TỚI';
 const ADMIN_TRACKING_SPREADSHEET_ID = '1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8';
-const ADMIN_TRACKING_SHEET_NAME = 'TRACKING (CPD)';
+const ADMIN_TRACKING_SHEET_NAME = 'TRACKING (UNRELEASE)';
+const ADMIN_TRACKING_LEGACY_SHEET_NAME = 'TRACKING (CPD)';
 const ADMIN_TRACKING_PG_SPREADSHEET_ID = '1-c5kYP09R_uuxM_161N3P_oC2L0gOjyE8fOdL7uSf3w';
 const ADMIN_TRACKING_PG_SHEET_NAME = "26'TRACKING";
 const ADMIN_TRACKING_MAX_ROWS = 500;
 const ADMIN_TRACKING_MAX_COLUMNS = 400;
+const SHOPEE_TITLE_BLOCKED_TERMS = [
+  'số 1', 'duy nhất', 'tốt nhất', 'hoàn tiền 100%', 'chắc chắn hết',
+  'cam kết chữa khỏi', 'trị dứt điểm', 'chuyển khoản', 'ck', 'ngân hàng',
+  'số tài khoản', 'số điện thoại', 'zalo', 'facebook', 'địa chỉ', 'link ngoài',
+  'tiktok', 'lazada', 'tiki'
+];
 const ADMIN_SCHEDULE_COLUMNS = {
   platform: 0,
   brand: 1,
@@ -328,12 +335,13 @@ function adminListRecords(token, section, hostGroup, division) {
     const sheet = getScheduleSheetForDivision_(division);
     const lastRow = sheet.getLastRow();
     if (lastRow < 2) return [];
-
-    return sheet.getRange(2, 1, lastRow - 1, 20).getDisplayValues()
+    const columnIndexes = getScheduleColumnIndexes_(sheet);
+    const width = Math.max(sheet.getLastColumn(), 20);
+    return sheet.getRange(2, 1, lastRow - 1, width).getDisplayValues()
       .map((row, index) => {
         const values = {};
-        Object.keys(ADMIN_SCHEDULE_COLUMNS).forEach(key => {
-          values[key] = row[ADMIN_SCHEDULE_COLUMNS[key]] || '';
+        Object.keys(columnIndexes).forEach(key => {
+          values[key] = row[columnIndexes[key]] || '';
         });
         return {
           rowNumber: index + 2,
@@ -530,7 +538,10 @@ function getDashboardTrackingContext_(division) {
     throw new Error('Sheet tracking của division ' + normalizedDivision + ' chưa được cấu hình.');
   }
   const spreadsheet = SpreadsheetApp.openById(spreadsheetId);
-  const sheet = spreadsheet.getSheetByName(sheetName);
+  let sheet = spreadsheet.getSheetByName(sheetName);
+  if (!sheet && normalizedDivision === 'CPD') {
+    sheet = spreadsheet.getSheetByName(ADMIN_TRACKING_LEGACY_SHEET_NAME);
+  }
   if (!sheet) throw new Error('Không tìm thấy sheet "' + sheetName + '".');
   const lastRow = sheet.getLastRow();
   const lastColumn = sheet.getLastColumn();
@@ -623,17 +634,19 @@ function adminDeleteRecord(token, section, hostGroup, rowNumber, version, divisi
 
 function saveScheduleRecord_(record, division) {
   const sheet = getScheduleSheetForDivision_(division);
+  const columnIndexes = getScheduleColumnIndexes_(sheet);
+  const width = Math.max(sheet.getLastColumn(), 20);
   const values = record.values;
   const editableFields = ['host', 'douHost', 'hostEco', 'room', 'status', 'isKeep'];
   if (record.rowNumber === undefined || record.rowNumber === null || record.rowNumber === '') {
     throw new Error('Không được tạo lịch thủ công; lịch được import từ brand.');
   }
-  const rowNumber = getTargetRow_(sheet, record, 20);
+  const rowNumber = getTargetRow_(sheet, record, width);
   if (rowNumber < 2) throw new Error('Không được sửa dòng tiêu đề của sheet lịch.');
-  const currentRow = sheet.getRange(rowNumber, 1, 1, 20).getDisplayValues()[0];
+  const currentRow = sheet.getRange(rowNumber, 1, 1, width).getDisplayValues()[0];
   const currentValues = {};
-  Object.keys(ADMIN_SCHEDULE_COLUMNS).forEach(key => {
-    currentValues[key] = currentRow[ADMIN_SCHEDULE_COLUMNS[key]] || '';
+  Object.keys(columnIndexes).forEach(key => {
+    currentValues[key] = currentRow[columnIndexes[key]] || '';
   });
   validateRecordUpdate_(
     values,
@@ -643,9 +656,54 @@ function saveScheduleRecord_(record, division) {
   );
 
   const fieldsToWrite = editableFields.filter(key => Object.prototype.hasOwnProperty.call(values, key));
-  const columns = fieldsToWrite.map(key => ADMIN_SCHEDULE_COLUMNS[key] + 1);
+  const columns = fieldsToWrite.map(key => columnIndexes[key] + 1);
   const updatedValues = fieldsToWrite.map(key => cleanText_(values[key], key));
   writeRowCells_(sheet, rowNumber, columns, updatedValues);
+}
+
+function getScheduleColumnIndexes_(sheet) {
+  const aliases = {
+    platform: ['platform', 'sàn', 'sàn live', 'nền tảng'],
+    brand: ['brand', 'tên brand', 'thương hiệu'],
+    date: ['date', 'ngày', 'ngày live', 'ngày phát sóng', 'ngày chạy live'],
+    type: ['type', 'loại lịch', 'loại', 'nguồn', 'source'],
+    startTime: ['start time', 'starttime', 'time start', 'start', 'from', 'giờ bắt đầu', 'bắt đầu', 'giờ live'],
+    endTime: ['end time', 'endtime', 'time end', 'end', 'to', 'giờ kết thúc', 'kết thúc'],
+    pic: ['pic', 'người phụ trách', 'người quản lý', 'phụ trách'],
+    host: ['host', 'mã host'],
+    douHost: ['douhost', 'đa host', 'host phụ'],
+    hostEco: ['host eco', 'hosteco', 'eco host'],
+    room: ['room', 'phòng', 'phòng live'],
+    status: ['status', 'trạng thái'],
+    isKeep: ['iskeep', 'is keep', 'keep']
+  };
+  const indexes = Object.assign({}, ADMIN_SCHEDULE_COLUMNS);
+  const lastColumn = sheet.getLastColumn();
+  if (!lastColumn) return indexes;
+  const headers = sheet.getRange(1, 1, 1, lastColumn).getDisplayValues()[0]
+    .map(function(value) {
+      return String(value || '').normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/gi, 'd')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    });
+  Object.keys(aliases).forEach(function(key) {
+    const matches = aliases[key].map(function(alias) {
+      return alias.normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/gi, 'd')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    });
+    const headerIndex = headers.findIndex(function(header) {
+      return matches.indexOf(header) >= 0;
+    });
+    if (headerIndex >= 0) indexes[key] = headerIndex;
+  });
+  return indexes;
 }
 
 function saveBackgroundRecord_(spreadsheet, record) {
@@ -703,12 +761,75 @@ function saveTitleRecord_(spreadsheet, record) {
     dateFlag: row[5] || '0',
     title: row[6] || ''
   };
+  const updatedValues = {
+    hostFlag: Object.prototype.hasOwnProperty.call(values, 'hostFlag') ? String(values.hostFlag) : currentValues.hostFlag,
+    timeFlag: Object.prototype.hasOwnProperty.call(values, 'timeFlag') ? String(values.timeFlag) : currentValues.timeFlag,
+    dateFlag: Object.prototype.hasOwnProperty.call(values, 'dateFlag') ? String(values.dateFlag) : currentValues.dateFlag,
+    title: Object.prototype.hasOwnProperty.call(values, 'title') ? cleanText_(values.title, 'title') : currentValues.title
+  };
+  validateTitleRules_(spreadsheet, currentValues.platform, updatedValues);
   const editableFields = ['hostFlag', 'timeFlag', 'dateFlag', 'title'];
   validateRecordUpdate_(values, currentValues, editableFields, ['platform', 'brand']);
   const columns = { hostFlag: 4, timeFlag: 5, dateFlag: 6, title: 7 };
   const fieldsToWrite = editableFields.filter(key => Object.prototype.hasOwnProperty.call(values, key));
   writeRowCells_(sheet, rowNumber, fieldsToWrite.map(key => columns[key]),
     fieldsToWrite.map(key => key.endsWith('Flag') ? String(values[key]) : cleanText_(values[key], key)));
+}
+
+function validateTitleRules_(spreadsheet, platform, values) {
+  const normalizedPlatform = String(platform || '').trim().toLowerCase();
+  if (normalizedPlatform.indexOf('tiktok') >= 0 || normalizedPlatform === 'tts') {
+    const lengths = [];
+    if (values.hostFlag === '1') lengths.push(getMaxHostCodeLength_(spreadsheet));
+    if (values.timeFlag === '1') lengths.push(2);
+    if (values.dateFlag === '1') lengths.push(5);
+    lengths.push(Array.from(String(values.title || '')).length);
+    const composedLength = lengths.reduce(function(total, length) { return total + length; }, Math.max(0, lengths.length - 1));
+    if (composedLength > 32) {
+      throw new Error('Title TTS sau khi ghép vượt giới hạn 32 ký tự (đã tính mã host dài nhất).');
+    }
+  }
+  if (normalizedPlatform.indexOf('shopee') >= 0 || normalizedPlatform === 'shp') {
+    const normalizedTitle = ' ' + normalizeTitleForPolicy_(values.title) + ' ';
+    const blockedTerm = SHOPEE_TITLE_BLOCKED_TERMS.find(function(term) {
+      const normalizedTerm = normalizeTitleForPolicy_(term);
+      return normalizedTerm === 'ck'
+        ? /(^|\s)ck(\s|$)/.test(normalizedTitle)
+        : normalizedTitle.indexOf(' ' + normalizedTerm + ' ') >= 0;
+    });
+    if (blockedTerm) {
+      throw new Error('Title Shopee có cụm từ cần tránh: "' + blockedTerm + '".');
+    }
+  }
+}
+
+function getMaxHostCodeLength_(spreadsheet) {
+  const sheetColumns = [
+    { name: 'ECO ID', column: 4 },
+    { name: 'CPD ID', column: 3 }
+  ];
+  let maxLength = 0;
+  sheetColumns.forEach(function(config) {
+    const sheet = spreadsheet.getSheetByName(config.name);
+    if (!sheet || sheet.getLastRow() < 2) return;
+    const codes = sheet.getRange(2, config.column, sheet.getLastRow() - 1, 1).getDisplayValues();
+    codes.forEach(function(row) {
+      maxLength = Math.max(maxLength, Array.from(String(row[0] || '')).length);
+    });
+  });
+  if (!maxLength) {
+    throw new Error('Không thể kiểm tra ghép mã host: chưa có mã host trong ECO ID hoặc CPD ID.');
+  }
+  return maxLength;
+}
+
+function normalizeTitleForPolicy_(value) {
+  return String(value || '').normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/gi, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9%]+/g, ' ')
+    .trim();
 }
 
 function saveHostRecord_(spreadsheet, hostGroup, record) {
@@ -778,10 +899,13 @@ function getScheduleSheetForDivision_(division) {
   if (normalizedDivision !== 'CPD' && normalizedDivision !== 'P&G') {
     throw new Error('Phải chọn division CPD hoặc P&G trước khi truy cập dữ liệu.');
   }
-  return requireSheet_(
-    SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID),
-    ADMIN_MEGA_SCHEDULE_SHEET_NAME
-  );
+  const spreadsheet = SpreadsheetApp.openById(ADMIN_MEGA_SCHEDULE_SPREADSHEET_ID);
+  const sheet = spreadsheet.getSheetByName(ADMIN_MEGA_SCHEDULE_SHEET_NAME);
+  if (!sheet) {
+    throw new Error('Không tìm thấy sheet "' + ADMIN_MEGA_SCHEDULE_SHEET_NAME +
+      '" trong workbook lịch/account đã kết hợp.');
+  }
+  return sheet;
 }
 
 function getHostConfig_(spreadsheet, hostGroup) {

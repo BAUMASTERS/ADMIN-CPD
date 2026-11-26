@@ -1,8 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type FormEvent, type MouseEvent } from "react";
 import {
   Activity, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Command,
-  Database, FileText, LockKeyhole, Menu, Moon,
-  MoreHorizontal, Package, Pencil, Plus, Search, Sun, Trash2, Upload,
+  Database, FileText, FolderOpen, LockKeyhole, Menu, Moon,
+  MoreHorizontal, Package, Pencil, Plus, Search, Sun, Trash2,
   Users, X, Check, Bell, Library, Clock3, Image, LayoutDashboard,
   CircleHelp, ExternalLink, ShieldCheck
 } from "lucide-react";
@@ -69,6 +69,38 @@ function getRoleLabel(role: AdminRole) {
   return role === "admincpd" ? "Admin CPD" : "Admin P&G";
 }
 
+const SHOPEE_BLOCKED_TITLE_TERMS = [
+  "số 1", "duy nhất", "tốt nhất", "hoàn tiền 100%", "chắc chắn hết",
+  "cam kết chữa khỏi", "trị dứt điểm", "chuyển khoản", "ck", "ngân hàng",
+  "số tài khoản", "số điện thoại", "zalo", "facebook", "địa chỉ", "link ngoài",
+  "tiktok", "lazada", "tiki"
+];
+
+function normalizeTitleText(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/gi, "d").toLocaleLowerCase("vi")
+    .replace(/[^\p{L}\p{N}%]+/gu, " ").trim();
+}
+
+function getShopeeBlockedTerm(title: string) {
+  const normalizedTitle = ` ${normalizeTitleText(title)} `;
+  return SHOPEE_BLOCKED_TITLE_TERMS.find(term => {
+    const normalizedTerm = normalizeTitleText(term);
+    return normalizedTerm === "ck"
+      ? new RegExp(`(^|\\s)${normalizedTerm}(\\s|$)`).test(normalizedTitle)
+      : normalizedTitle.includes(` ${normalizedTerm} `);
+  });
+}
+
+function getComposedTitleLength(values: Record<string, string>, maxHostCodeLength: number) {
+  const parts: number[] = [];
+  if (values.hostFlag === "1") parts.push(maxHostCodeLength);
+  if (values.timeFlag === "1") parts.push(2);
+  if (values.dateFlag === "1") parts.push(5);
+  parts.push(Array.from(values.title || "").length);
+  return parts.reduce((total, length) => total + length, Math.max(0, parts.length - 1));
+}
+
 function canAccessDivision(role: AdminRole | undefined, division: Division) {
   if (role === "admincpd") return division === "CPD";
   if (role === "adminpng") return division === "P&G";
@@ -96,14 +128,35 @@ function statusClass(value = "") {
 }
 
 function parseRecordDate(value: string, year: number) {
-  const parts = value.split(/[/-]/).map(Number);
-  if (parts.length < 2 || parts.some(Number.isNaN)) return null;
-  const [first, second, third] = parts;
-  const day = first > 31 ? third : first;
-  const month = second;
-  const recordYear = first > 31 ? first : third || year;
-  if (!day || month < 1 || month > 12 || day > 31) return null;
-  return new Date(recordYear, month - 1, day);
+  const text = String(value || "").trim();
+  const iso = text.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  const localized = text.match(/^(\d{1,2})[/. -](\d{1,2})(?:[/. -](\d{2,4}))?/);
+  let recordYear: number;
+  let month: number;
+  let day: number;
+  if (iso) {
+    recordYear = Number(iso[1]);
+    month = Number(iso[2]);
+    day = Number(iso[3]);
+  } else if (localized) {
+    day = Number(localized[1]);
+    month = Number(localized[2]);
+    recordYear = localized[3]
+      ? Number(localized[3].length === 2 ? `20${localized[3]}` : localized[3])
+      : year;
+  } else {
+    return null;
+  }
+  const parsed = new Date(recordYear, month - 1, day);
+  if (parsed.getFullYear() !== recordYear || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return null;
+  return parsed;
+}
+
+function platformFilterKey(value: string) {
+  const normalized = value.trim().toLocaleUpperCase("vi");
+  if (normalized.includes("TIKTOK") || normalized === "TTS") return "TTS";
+  if (normalized.includes("SHOPEE") || normalized === "SHP") return "SHP";
+  return normalized;
 }
 
 function dateKey(date: Date) {
@@ -123,6 +176,7 @@ export default function App() {
   const [mobileMenu, setMobileMenu] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("fs-sidebar-collapsed") === "true");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceMenuPosition, setWorkspaceMenuPosition] = useState({ top: 0, left: 0, width: 0 });
   const [ganttPixelsPerDay, setGanttPixelsPerDay] = useState(() => window.innerWidth <= 760 ? 110 : 150);
   const [trackingRecords, setTrackingRecords] = useState<RecordItem[]>([]);
   const [trackingError, setTrackingError] = useState("");
@@ -139,6 +193,9 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [hostGroup, setHostGroup] = useState("ECO ID");
+  const [filterPlatform, setFilterPlatform] = useState("all");
+  const [filterBrand, setFilterBrand] = useState("all");
+  const [maxHostCodeLength, setMaxHostCodeLength] = useState(6);
   const [calendarView, setCalendarView] = useState<CalendarView>(() =>
     window.matchMedia("(max-width: 760px)").matches ? "day" : "month"
   );
@@ -153,7 +210,6 @@ export default function App() {
   const [editingLibraryId, setEditingLibraryId] = useState<string | undefined>();
   const [libraryDraft, setLibraryDraft] = useState({ name: "", description: "" });
   const [demoRole, setDemoRole] = useState<AdminRole>("admincpd");
-  const [localImageUrl, setLocalImageUrl] = useState("");
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountModal, setAccountModal] = useState(false);
   const [accountModalMode, setAccountModalMode] = useState<"create" | "edit" | "profile">("create");
@@ -184,6 +240,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("fs-sidebar-collapsed", String(sidebarCollapsed));
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    setFilterPlatform("all");
+    setFilterBrand("all");
+  }, [screen, division]);
 
   useEffect(() => {
     const updateGanttScale = () => setGanttPixelsPerDay(window.innerWidth <= 760 ? 110 : 150);
@@ -230,7 +291,7 @@ export default function App() {
     if (screen !== "dashboard") return;
     setTrackingRecords([]);
     if (!isBackendEnabled) {
-      setTrackingError("Dashboard Gantt cần kết nối Apps Script để đọc sheet TRACKING (CPD).");
+      setTrackingError("Dashboard Gantt cần kết nối Apps Script để đọc TRACKING (UNRELEASE) hoặc sheet CPD dự phòng.");
       return;
     }
     if (!adminSession) {
@@ -266,25 +327,45 @@ export default function App() {
     return () => { active = false; };
   }, [screen, adminSession]);
 
-  useEffect(() => () => {
-    if (localImageUrl) URL.revokeObjectURL(localImageUrl);
-  }, [localImageUrl]);
-
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 3000);
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const filtered = useMemo(() => records.filter(record =>
-    !query || JSON.stringify(record.values).toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi"))
-  ), [records, query]);
+  const recordBrands = useMemo(() => Array.from(new Set(records
+    .map(record => record.values.brand?.trim())
+    .filter((brand): brand is string => Boolean(brand))))
+    .sort((left, right) => left.localeCompare(right, "vi")), [records]);
+  const filtered = useMemo(() => records.filter(record => {
+    const matchesQuery = !query ||
+      JSON.stringify(record.values).toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi"));
+    if (!matchesQuery || !["backgrounds", "titles"].includes(module)) return matchesQuery;
+    const matchesPlatform = filterPlatform === "all" ||
+      platformFilterKey(record.values.platform || "") === filterPlatform;
+    const matchesBrand = filterBrand === "all" ||
+      (record.values.brand || "").toLocaleLowerCase("vi") === filterBrand.toLocaleLowerCase("vi");
+    return matchesPlatform && matchesBrand;
+  }), [records, query, module, filterPlatform, filterBrand]);
 
   const scheduleRecords = useMemo(() => records.filter(record => {
     const sourceName = record.values.type || "Lịch mega";
     const source = sources.find(item => item.name === sourceName) || initialSources.find(item => item.name === sourceName);
     return !source || visibleSources.includes(source.id);
   }), [records, sources, visibleSources]);
+  const dailyScheduleRecords = useMemo(() => scheduleRecords.filter(record => {
+    const recordDate = parseRecordDate(record.values.date || "", selectedDate.getFullYear());
+    if (!recordDate || dateKey(recordDate) !== dateKey(selectedDate)) return false;
+    if (filterPlatform !== "all" &&
+      platformFilterKey(record.values.platform || "") !== filterPlatform) return false;
+    if (filterBrand !== "all" &&
+      (record.values.brand || "").toLocaleLowerCase("vi") !== filterBrand.toLocaleLowerCase("vi")) return false;
+    return true;
+  }).sort((left, right) => (left.values.startTime || "").localeCompare(right.values.startTime || "")),
+  [scheduleRecords, selectedDate, filterPlatform, filterBrand]);
+  const dailyRooms = useMemo(() => Array.from(new Set(dailyScheduleRecords.map(record =>
+    `${record.values.studio || "Chưa phân loại"}|${record.values.room || "Chưa xếp phòng"}`
+  ))), [dailyScheduleRecords]);
 
   const activeCount = records.filter(record => /đang hoạt động|online/i.test(record.values.status || "")).length;
   const rooms = Array.from(new Set(records.map(record => `${record.values.studio || "Chưa phân loại"}|${record.values.room || "Chưa xếp phòng"}`)));
@@ -341,6 +422,17 @@ export default function App() {
     account.username === (isBackendEnabled ? adminSession?.username : undefined)
   ) || accounts.find(account => account.role === demoRole);
   const activeProfile = ownAccount;
+
+  function toggleWorkspaceMenu(event: MouseEvent<HTMLButtonElement>) {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const isDesktopCollapsed = window.innerWidth > 760 && sidebarCollapsed;
+    setWorkspaceMenuPosition({
+      top: bounds.bottom + 7,
+      left: isDesktopCollapsed ? bounds.right + 7 : bounds.left,
+      width: isDesktopCollapsed ? 215 : bounds.width
+    });
+    setWorkspaceOpen(current => !current);
+  }
 
   async function refresh() {
     if (screen === "dashboard") {
@@ -403,7 +495,23 @@ export default function App() {
     setFormOpen(true);
   }
 
-  function openEdit(record: RecordItem) {
+  async function openEdit(record: RecordItem) {
+    if (module === "titles" && platformFilterKey(record.values.platform || "") === "TTS") {
+      try {
+        const [ecoHosts, basHosts] = await Promise.all([
+          listRecords("hosts", division, "ECO ID"),
+          listRecords("hosts", division, "CPD ID")
+        ]);
+        const codes = [...ecoHosts, ...basHosts]
+          .map(host => host.values.hostCode || "")
+          .filter(Boolean);
+        if (codes.length) {
+          setMaxHostCodeLength(Math.max(...codes.map(code => Array.from(code).length)));
+        }
+      } catch (error) {
+        setToast(`Không thể tải mã host để ước tính độ dài: ${error instanceof Error ? error.message : "Lỗi không xác định"}`);
+      }
+    }
     setEditing(record);
     setFormValues({ ...record.values });
     setFormOpen(true);
@@ -411,6 +519,20 @@ export default function App() {
 
   async function handleSave(event: FormEvent) {
     event.preventDefault();
+    if (module === "titles") {
+      const platform = platformFilterKey(editing?.values.platform || "");
+      if (platform === "TTS" && getComposedTitleLength(formValues, maxHostCodeLength) > 32) {
+        setToast(`Title sau khi ghép vượt 32 ký tự (mã host tối đa ${maxHostCodeLength} ký tự).`);
+        return;
+      }
+      if (platform === "SHP") {
+        const blockedTerm = getShopeeBlockedTerm(formValues.title || "");
+        if (blockedTerm) {
+          setToast(`Title có cụm từ Shopee cần tránh: "${blockedTerm}".`);
+          return;
+        }
+      }
+    }
     setSaving(true);
     try {
       await saveRecord(module, formValues, editing, division, hostGroup);
@@ -656,19 +778,6 @@ export default function App() {
     }
   }
 
-  const changeFile = (file?: File) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setToast("Vui lòng chọn tệp hình ảnh.");
-      return;
-    }
-    if (localImageUrl) URL.revokeObjectURL(localImageUrl);
-    const previewUrl = URL.createObjectURL(file);
-    setLocalImageUrl(previewUrl);
-    setFormValues(current => ({ ...current, link1: `LOCAL DEMO · ${file.name}` }));
-    setToast("Đã chọn hình. Bản xem trước chỉ lưu trong phiên này, chưa tải lên Drive.");
-  };
-
   const navButton = (key: Screen, label: string, Icon: typeof CalendarDays, badge?: string, disabled = false) => (
     <button key={key} className={`nav-item ${screen === key ? "active" : ""}`} onClick={() => setScreen(key)} title={sidebarCollapsed ? label : undefined} disabled={disabled}>
       <Icon size={18}/><span>{label}</span>{badge && <small className="nav-badge">{badge}</small>}
@@ -715,10 +824,10 @@ export default function App() {
         <aside className={`sidebar ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${mobileMenu ? "sidebar-open" : ""}`}>
           <div className="sidebar-header"><span className="workspace-caption">FORCE SHADOW</span><button className="sidebar-toggle desktop-sidebar-toggle" onClick={() => setSidebarCollapsed(current => !current)} aria-label={sidebarCollapsed ? "Mở rộng thanh điều hướng" : "Thu gọn thanh điều hướng"} title={sidebarCollapsed ? "Mở rộng" : "Thu gọn"}>{sidebarCollapsed ? <ChevronRight size={17}/> : <ChevronLeft size={17}/>}</button></div>
           <div className="workspace-selector">
-            <button className="workspace-switch" aria-expanded={workspaceOpen} aria-haspopup="true" aria-label={`Division đang làm việc: ${division} MASTER`} onClick={() => setWorkspaceOpen(current => !current)}>
+            <button className="workspace-switch" aria-expanded={workspaceOpen} aria-haspopup="true" aria-label={`Division đang làm việc: ${division} MASTER`} onClick={toggleWorkspaceMenu}>
               <span className="workspace-avatar">{division === "CPD" ? "C" : "P"}</span><span className="sidebar-copy"><b>{division} MASTER</b><small>Division đang làm việc</small></span><ChevronDown size={16}/>
             </button>
-            {workspaceOpen && <div className="workspace-menu" role="group" aria-label="Chọn division">
+            {workspaceOpen && <div className="workspace-menu" style={{ position: "fixed", top: workspaceMenuPosition.top, left: workspaceMenuPosition.left, width: workspaceMenuPosition.width }} role="group" aria-label="Chọn division">
               {(["CPD", "P&G"] as Division[]).map(option => <button key={option} className={division === option ? "selected" : ""} disabled={!canAccessDivision(adminSession?.role, option)} onClick={() => { setDivision(option); setWorkspaceOpen(false); }}><span className="workspace-avatar">{option === "CPD" ? "C" : "P"}</span><span><b>{option} MASTER</b><small>{division === option ? "Đang làm việc" : canAccessDivision(adminSession?.role, option) ? "Chuyển division" : "Không có quyền"}</small></span>{canAccessDivision(adminSession?.role, option) && <Check size={15}/>}</button>)}
             </div>}
           </div>
@@ -887,20 +996,27 @@ export default function App() {
                 ) : (
                   <div className="daily-room-list">
                     <div className="daily-date-heading"><button className="outline-button" aria-label="Ngày trước" onClick={() => shiftCalendar(-1)}><ChevronLeft size={16}/></button><b>{new Intl.DateTimeFormat("vi-VN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(selectedDate)}</b><button className="outline-button" aria-label="Ngày sau" onClick={() => shiftCalendar(1)}><ChevronRight size={16}/></button></div>
-                    {rooms.map(roomKey => {
+                    <div className="calendar-record-filters">
+                      <label><span>Sàn</span><select value={filterPlatform} onChange={event => setFilterPlatform(event.target.value)}><option value="all">Tất cả sàn</option><option value="TTS">TTS</option><option value="SHP">SHP</option></select></label>
+                      <label><span>Brand</span><select value={filterBrand} onChange={event => setFilterBrand(event.target.value)}><option value="all">Tất cả brand</option>{recordBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}</select></label>
+                    </div>
+                    {dailyRooms.map(roomKey => {
                       const [studio, room] = roomKey.split("|");
-                      const events = records.filter(record => record.values.studio === studio && record.values.room === room && parseRecordDate(record.values.date || "", selectedDate.getFullYear()) && dateKey(parseRecordDate(record.values.date || "", selectedDate.getFullYear())!) === dateKey(selectedDate));
+                      const events = dailyScheduleRecords.filter(record =>
+                        (record.values.studio || "Chưa phân loại") === studio &&
+                        (record.values.room || "Chưa xếp phòng") === room
+                      );
                       if (!events.length) return null;
-                      return <article className="daily-room-card" key={roomKey}><div><small>{studio}</small><b>{room}</b></div><div className="daily-room-events">{events.map(event => <button key={event.id} onClick={() => openEdit(event)}><b>{event.values.startTime}–{event.values.endTime}</b><span>{event.values.brand} · {event.values.host || "Chưa gán"}</span><i className={statusClass(event.values.status)}>{event.values.status}</i></button>)}</div></article>;
+                      return <article className="daily-room-card" key={roomKey}><div><small>{studio}</small><b>{room}</b></div><div className="daily-room-events">{events.map(event => <button key={event.id} onClick={() => openEdit(event)}><b>{event.values.startTime}–{event.values.endTime}</b><span>{event.values.platform} · {event.values.brand} · {event.values.host || "Chưa gán"}</span><i className={statusClass(event.values.status)}>{event.values.status}</i></button>)}</div></article>;
                     })}
-                    {!getRecordsForDate(selectedDate).length && <div className="empty-state"><CalendarDays size={25}/><b>Không có lịch trong ngày</b><span>Thử chọn ngày khác trên lịch tháng.</span></div>}
+                    {!dailyScheduleRecords.length && <div className="empty-state"><CalendarDays size={25}/><b>Không có lịch trong ngày</b><span>Thử chọn ngày khác hoặc đổi bộ lọc.</span></div>}
                   </div>
                 )}
-                <div className="calendar-legend"><LockKeyhole size={14}/> Lịch xem theo tháng, bố trí phòng theo ngày. Dữ liệu lịch mẫu; kết nối nguồn Google Sheets đang chờ cấp quyền.</div>
+                {!isBackendEnabled && <div className="calendar-legend"><LockKeyhole size={14}/> Dữ liệu lịch mẫu trong phiên demo.</div>}
               </section>
             ) : module === "backgrounds" ? (
               <section className="data-panel">
-                <div className="panel-heading"><div><h2>Background theo thương hiệu</h2><p>{filtered.length} hồ sơ · chỉ chỉnh sửa record sẵn có</p></div><div className="filters"><label className="table-search"><Search size={16}/><input placeholder="Tìm thương hiệu..." value={query} onChange={event => setQuery(event.target.value)}/></label></div></div>
+                <div className="panel-heading"><div><h2>Background theo thương hiệu</h2><p>{filtered.length} hồ sơ</p></div><div className="filters"><label className="select-wrap"><select aria-label="Lọc background theo sàn" value={filterPlatform} onChange={event => setFilterPlatform(event.target.value)}><option value="all">Tất cả sàn</option><option value="TTS">TTS</option><option value="SHP">SHP</option></select><ChevronDown size={15}/></label><label className="select-wrap"><select aria-label="Lọc background theo brand" value={filterBrand} onChange={event => setFilterBrand(event.target.value)}><option value="all">Tất cả brand</option>{recordBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}</select><ChevronDown size={15}/></label><label className="table-search"><Search size={16}/><input placeholder="Tìm thương hiệu..." value={query} onChange={event => setQuery(event.target.value)}/></label></div></div>
                 <div className="background-grid">{filtered.map(record => <article className="background-card" key={record.id}>
                   <div className="background-preview"><Image size={26}/><span>BG · {record.values.type || "Chưa phân loại"}</span></div>
                   <div className="background-card-content"><div className="background-card-title"><span><small>{record.values.platform}</small><b>{record.values.brand}</b></span><button className="icon-button" onClick={() => openEdit(record)} aria-label="Sửa background"><Pencil size={16}/></button></div>
@@ -915,6 +1031,7 @@ export default function App() {
               <section className="data-panel">
                 <div className="panel-heading"><div><h2>{module === "titles" ? "Mẫu tiêu đề theo thương hiệu" : `Danh sách ${config.singular}`}</h2><p>{filtered.length} bản ghi được hiển thị</p></div>
                   <div className="filters"><label className="table-search"><Search size={16}/><input placeholder="Tìm trong danh sách..." value={query} onChange={event => setQuery(event.target.value)}/></label>
+                    {module === "titles" && <><label className="select-wrap"><select aria-label="Lọc title theo sàn" value={filterPlatform} onChange={event => setFilterPlatform(event.target.value)}><option value="all">Tất cả sàn</option><option value="TTS">TTS</option><option value="SHP">SHP</option></select><ChevronDown size={15}/></label><label className="select-wrap"><select aria-label="Lọc title theo brand" value={filterBrand} onChange={event => setFilterBrand(event.target.value)}><option value="all">Tất cả brand</option>{recordBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}</select><ChevronDown size={15}/></label></>}
                     {module === "hosts" && <label className="select-wrap"><select value={hostGroup} onChange={event => setHostGroup(event.target.value)}><option>ECO ID</option><option>CPD ID</option></select><ChevronDown size={15}/></label>}
                   </div>
                 </div>
@@ -992,13 +1109,12 @@ export default function App() {
         <div className="form-header"><div><span className="eyebrow">{division} · QUẢN LÝ DỮ LIỆU</span><h2>{editing ? "Cập nhật bản ghi" : `Tạo ${config.singular} mới`}</h2><p>{module === "schedules" ? "Chỉ được cập nhật thông tin vận hành của lịch đã import." : module === "backgrounds" ? "Chỉ cập nhật tài nguyên của record brand đã có." : module === "titles" ? "Chỉ sửa title và các tùy chọn ghép." : "Nhập thông tin mã host."}</p></div><button type="button" className="icon-button" onClick={() => setFormOpen(false)} aria-label="Đóng"><X/></button></div>
         <div className="form-content">
           {module === "backgrounds" && <div className="upload-demo-box">
-            <div className="upload-demo-copy"><span className="upload-icon"><Upload size={19}/></span><span><b>Tải hình background</b><small>Chọn hình để xem trước · chưa tải lên Google Drive</small></span></div>
-            <label className="outline-button upload-button"><Upload size={15}/> Chọn hình<input type="file" accept="image/*" onChange={event => changeFile(event.target.files?.[0])}/></label>
-            {localImageUrl && <img className="upload-preview" src={localImageUrl} alt="Xem trước background đã chọn"/>}
+            <div className="upload-demo-copy"><span className="upload-icon"><FolderOpen size={19}/></span><span><b>Chọn thư mục background trên Drive</b><small>Drive mở riêng; lưu link hình vào record brand hiện có.</small></span></div>
+            <a className="outline-button upload-button" href="https://drive.google.com/drive/my-drive" target="_blank" rel="noreferrer"><FolderOpen size={15}/> Mở Google Drive</a>
           </div>}
           {module === "schedules" && editing && <div className="locked-record"><LockKeyhole size={15}/> {editing.values.date} · {editing.values.startTime}–{editing.values.endTime} · {editing.values.brand} <small>Thông tin import được khóa</small></div>}
           {module === "backgrounds" && editing && <div className="locked-record"><LockKeyhole size={15}/> {editing.values.platform} · {editing.values.brand}<small>Record brand được khóa, chỉ sửa phần background</small></div>}
-          {module === "titles" && editing && <div className="locked-record"><LockKeyhole size={15}/> {editing.values.platform} · {editing.values.brand}<small>Không thể đổi sàn/thương hiệu hoặc thêm/xóa title</small></div>}
+          {module === "titles" && editing && <div className="locked-record"><LockKeyhole size={15}/> {editing.values.platform} · {editing.values.brand}<small>Không thể đổi sàn/thương hiệu hoặc thêm/xóa title. Shopee cần tránh các cụm từ tuyệt đối, kéo giao dịch ra ngoài nền tảng và nội dung nhạy cảm/hàng cấm.</small></div>}
           {Array.from(new Set(config.fields.map(field => field.group || "Thông tin"))).map(group => <section className="form-section" key={group}><h3>{group}</h3><div className="form-grid">
             {config.fields.filter(field => (field.group || "Thông tin") === group).map(field => <label className={`form-field ${field.type === "textarea" ? "field-full" : ""}`} key={field.key}>
               <span>{field.label}{field.required && <i> *</i>}</span>
@@ -1008,6 +1124,14 @@ export default function App() {
               {field.hint && <small>{field.hint}</small>}
             </label>)}
           </div></section>)}
+          {module === "titles" && editing && platformFilterKey(editing.values.platform || "") === "TTS" && <div className={`title-length-check ${getComposedTitleLength(formValues, maxHostCodeLength) > 32 ? "over-limit" : ""}`}>
+            <b>{getComposedTitleLength(formValues, maxHostCodeLength)} / 32 ký tự</b>
+            <span>Đã tính mã host tối đa {maxHostCodeLength} ký tự, giờ (hh), ngày (dd/mm) và dấu gạch dưới.</span>
+          </div>}
+          {module === "titles" && editing && platformFilterKey(editing.values.platform || "") === "SHP" && <div className="title-length-check title-policy-note">
+            <b>Kiểm tra nội dung Shopee</b>
+            <span>Tự động kiểm tra các cụm từ được liệt kê; nội dung nhạy cảm, hàng cấm, bản quyền và thông tin sai lệch cần kiểm tra thủ công.</span>
+          </div>}
         </div>
         <div className="form-footer"><button type="button" className="outline-button" onClick={() => setFormOpen(false)}>Hủy</button><button className="create-button" disabled={saving}><Check size={16}/>{saving ? "Đang lưu..." : "Lưu thay đổi"}</button></div>
       </form></div>}

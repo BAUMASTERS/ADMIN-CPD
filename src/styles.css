@@ -700,3 +700,20 @@ body{background:var(--bg)}
   .mobile-bottom-nav button{min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:5px 1px;border:0;border-radius:8px;background:transparent;color:var(--muted);font-size:8px}
   .mobile-bottom-nav button.active{background:var(--accent-soft);color:var(--accent);font-weight:700}
 }
+.sidebar{overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+.sidebar .workspace-menu{z-index:45}
+.filters{flex-wrap:wrap}
+.calendar-record-filters{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;padding:12px 0}
+.calendar-record-filters label,.dashboard-filters label{display:grid;gap:5px;color:var(--muted);font-size:9px}
+.calendar-record-filters select{min-width:0;height:38px;padding:0 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);color:var(--text);font-size:11px}
+.title-length-check{display:grid;gap:5px;margin:0 0 16px;padding:11px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface-2);font-size:10px}
+.title-length-check b{color:var(--green)}
+.title-length-check span{color:var(--muted);font-size:9px;line-height:1.5}
+.title-length-check.over-limit{border-color:var(--red)}
+.title-length-check.over-limit b{color:var(--red)}
+.title-policy-note b{color:var(--amber)}
+.upload-button{text-decoration:none}
+@media(max-width:760px){
+  .calendar-record-filters{padding:9px 0}
+  .filters{align-items:stretch}
+}

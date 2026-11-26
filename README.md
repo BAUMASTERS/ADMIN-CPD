@@ -20,9 +20,9 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 - Bản mobile ưu tiên thao tác nhanh một tay, thanh điều hướng dưới và biểu đồ Gantt cuộn ngang.
 - Chỉ có chế độ Sáng/Tối, chuyển bằng một nút; màu nhấn ice blue ở sáng và burgundy ở tối.
 - Chọn division CPD/P&G; dữ liệu mẫu tách biệt theo division.
-- Lịch live có chế độ xem theo tháng hoặc ngày (không có chế độ tuần); danh sách lịch xem có thể thêm/bỏ.
-- Background hiển thị theo hồ sơ brand; form chọn ảnh chỉ xem trước tại trình duyệt, chưa upload lên Drive.
-- Title chỉ sửa title và các tùy chọn ghép trên record có sẵn; không tạo/xóa, không sửa sàn/thương hiệu.
+- Lịch live có chế độ xem theo tháng hoặc ngày (không có chế độ tuần); danh sách lịch xem có thể thêm/bỏ. Theo ngày có bộ lọc brand/sàn, mặc định là tất cả.
+- Background và Title có bộ lọc brand/sàn. Background chỉ sửa record hiện có; nút Drive mở My Drive để người dùng tự chọn/lưu thư mục, không upload tự động.
+- Title chỉ sửa title và các tùy chọn ghép trên record có sẵn; không tạo/xóa, không sửa sàn/thương hiệu. TTS được kiểm tra tối đa 32 ký tự sau khi ghép `[mã host]_[hh]_[dd/mm]_title`, dùng mã host dài nhất hiện có. Shopee chặn các cụm cụ thể được liệt kê trong giao diện; nội dung nhạy cảm, hàng cấm, bản quyền và thông tin sai lệch vẫn cần kiểm tra thủ công.
 - Mã host có lựa chọn ECO/BAS và CRUD dữ liệu mẫu.
 - Thư viện có xem theo division; quyền thêm/sửa/xóa chỉ mô phỏng role Superadmin trong giao diện.
 - Superadmin có thể thêm, sửa, khóa/mở và xóa tài khoản trong LIST. Admin CPD/P&G chỉ xem được hồ sơ của mình và chỉ đổi mật khẩu/avatar.
@@ -30,13 +30,13 @@ Frontend React/Vite là giao diện quản trị; Apps Script chỉ chứa backe
 
 Khi Vercel chưa cấu hình `VITE_API_BASE_URL`, các nhãn “demo” hoặc “mô phỏng” có nghĩa thao tác chưa được lưu vào Google Sheets/Drive và vai trò chưa được xác thực.
 
-Spreadsheet `1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E` là nguồn dữ liệu chính của CPD (Title, Background, mã host). Dashboard CPD đọc tracking từ spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, sheet `TRACKING (CPD)`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Tracking, Title, Background và host P&G chưa cấu hình. Lịch mega dùng chung hai division, đọc từ spreadsheet `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`, sheet `LỊCH SẮP TỚI`.
+Spreadsheet `1Wqkll2nltkSJ593bgmDKbWgwXcS59nzzsdR7cqY3h8E` là nguồn dữ liệu chính của CPD (Title, Background, mã host). Dashboard CPD đọc tracking từ spreadsheet `1bNco8_NAVBWDxeotX9AZrIrougKND7xhRLZhO9NFid8`, ưu tiên sheet `TRACKING (UNRELEASE)` và dự phòng `TRACKING (CPD)`, theo các cột `Section`, `Status`, `Content`, `Start`, `End`. Lịch mega và tài khoản admin dùng chung workbook `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`; lịch đọc sheet `LỊCH SẮP TỚI`, tài khoản đọc sheet `LIST`.
 
 ## Apps Script
 
 Chép `code.gs` vào Apps Script project. Project không phục vụ giao diện HTML.
 
-Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ spreadsheet `1bY9HRXGBlodCecmeavtDf-o5yD6pg4vlCVrhQQIunRk`, sheet `LIST`: cột B `userid`, C `password`, D `name`, E `role`, F `avatar`; cột G `active` là tùy chọn để khóa/mở tài khoản (ô trống được xem là đang hoạt động). Role hợp lệ là `superadmin`, `admincpd` (CPD), và `adminpng` (P&G). Superadmin có thể thêm, sửa, khóa/mở và xóa tài khoản trực tiếp từ giao diện. User thường chỉ nhận hồ sơ của chính mình từ API và chỉ có thể cập nhật mật khẩu/avatar.
+Không cần Script Properties riêng cho đăng nhập. Tài khoản lấy từ workbook `1h2Np6UVDI6RmjBtJyZByi8gaDapV9g-RtNvElzpDc4U`, sheet `LIST`: cột B `userid`, C `password`, D `name`, E `role`, F `avatar`; cột G `active` là tùy chọn để khóa/mở tài khoản (ô trống được xem là đang hoạt động). Role hợp lệ là `superadmin`, `admincpd` (CPD), và `adminpng` (P&G). Superadmin có thể thêm, sửa, khóa/mở và xóa tài khoản trực tiếp từ giao diện. User thường chỉ nhận hồ sơ của chính mình từ API và chỉ có thể cập nhật mật khẩu/avatar.
 
 **Lưu ý:** theo yêu cầu, mật khẩu được lưu dạng văn bản trong LIST!C. Bất kỳ ai có quyền xem spreadsheet đều có thể đọc chúng; chỉ cấp quyền xem sheet cho người được phép quản lý tài khoản và không dùng lại các mật khẩu quan trọng khác. Backend chỉ đọc mật khẩu để xác thực, không trả giá trị này trong API. Cột C được ghi dưới dạng text khi đổi mật khẩu để giữ nguyên ký tự như số 0 ở đầu. Tab `ADMIN_USERS` hoặc các Script Properties của cơ chế đăng nhập cũ không còn được sử dụng; nếu còn dữ liệu cũ, chúng không được tự động xóa.
 
@@ -54,9 +54,10 @@ Backend giới hạn thử mật khẩu sai theo tài khoản và phiên token t
 - Role `admincpd` chỉ được truy cập CPD; `adminpng` chỉ division P&G; Superadmin được truy cập cả hai.
 - Backend kiểm tra quyền division cho từng request; không truyền division thì từ chối.
 
-## Chưa có trong bản giao diện demo
+## Giới hạn hiện tại
 
-- Upload và quản lý hình trên Google Drive; hiện chỉ chọn tệp và xem trước cục bộ.
+- Drive chỉ mở My Drive; chưa có Google Drive Picker hoặc thao tác tải/quản lý file trực tiếp trong web.
+- Danh sách từ cấm Shopee hiện chỉ bao gồm các cụm cụ thể user đã cung cấp; các nhóm nội dung rộng hơn cần kiểm tra thủ công.
 - Khởi tạo brand đồng bộ record giữa các sheet và mở link sheet thật.
 - Nghiệp vụ Livestream Checking và Warning Checking.
 - Cần triển khai và kiểm thử quyền truy cập với spreadsheet thực tế trước production.
